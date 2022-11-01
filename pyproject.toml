@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "toxic_x_dom"
+version = "0.0.1"
+authors = [
+  { name="Stefan F. Schouten", email="sfschouten@gmail.com" },
+]
+description = ""
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/sfschouten/toxic-cross-domain"
+"Bug Tracker" = "https://github.com/sfschouten/toxic-cross-domain/issues"
