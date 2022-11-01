@@ -10,6 +10,3 @@ git remote add -f semeval_repo https://github.com/ipavlopoulos/toxic_spans.git
 git subtree add --prefix data/cad cad_repo main --squash
 git subtree add --prefix data/hatexplain hatexplain_repo master --squash
 git subtree add --prefix data/semeval semeval_repo master --squash
-
-
-#
