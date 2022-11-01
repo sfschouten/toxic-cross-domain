@@ -3,3 +3,5 @@ channels:
 dependencies:
   - defaults::pandas
   - defaults::nltk
+  - defaults::scikit-learn
+  - conda-forge::tqdm

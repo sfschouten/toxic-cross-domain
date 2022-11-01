@@ -3,20 +3,21 @@ from types import MappingProxyType
 import csv
 import re
 import json
+from typing import Dict
 
 import pandas as pd
 
-CAD_TSV = 'data/cad/data/cad_v1_1.tsv'
+CAD_TSV = 'data/toxic-span/cad/data/cad_v1_1.tsv'
 
-SEMEVAL_CSVS = MappingProxyType({
-    'train': 'data/semeval/tsd_train.csv',
-    'trial': 'data/semeval/tsd_trial.csv',
-    'test': 'data/semeval/tsd_test.csv',
+SEMEVAL_CSVs = MappingProxyType({
+    'train': 'data/toxic-span/semeval/tsd_train.csv',
+    'trial': 'data/toxic-span/semeval/tsd_trial.csv',
+    'test': 'data/toxic-span/semeval/tsd_test.csv',
 })
 
-HATEXPLAIN_JSONS = MappingProxyType({
-    'data': 'data/hatexplain/dataset.json',
-    'splits': 'data/hatexplain/post_id_divisions.json',
+HATEXPLAIN_JSONs = MappingProxyType({
+    'data': 'data/toxic-span/hatexplain/dataset.json',
+    'splits': 'data/toxic-span/hatexplain/post_id_divisions.json',
 })
 
 
@@ -83,7 +84,7 @@ def load_cad_data(data_path: str = CAD_TSV):
     return cad_df
 
 
-def load_hatexplain_data(data_paths=HATEXPLAIN_JSONS):
+def load_hatexplain_data(data_paths=HATEXPLAIN_JSONs):
     hxpl_df = pd.read_json(data_paths['data'], orient="index")
     hxpl_df = hxpl_df.rename(columns={"post_id": "id"})
 
@@ -131,7 +132,7 @@ def load_hatexplain_data(data_paths=HATEXPLAIN_JSONS):
     return hxpl_df
 
 
-def load_semeval_data(data_paths=SEMEVAL_CSVS):
+def load_semeval_data(data_paths=SEMEVAL_CSVs):
     sem_df_train = pd.read_csv(data_paths['train'], quotechar='"', keep_default_na=False, header=0)
     sem_df_trial = pd.read_csv(data_paths['trial'], quotechar='"', keep_default_na=False, header=0)
     sem_df_test = pd.read_csv(data_paths['test'], quotechar='"', keep_default_na=False, header=0)
@@ -180,8 +181,51 @@ def load_semeval_data(data_paths=SEMEVAL_CSVS):
     return sem_df
 
 
-if __name__ == "__main__":
+def load_toxic_span_datasets(
+        cad_data_path=CAD_TSV,
+        hatexplain_data_paths=HATEXPLAIN_JSONs,
+        semeval_data_paths=SEMEVAL_CSVs,
+):
+    return {
+        'cad': load_cad_data(data_path=cad_data_path),
+        'semeval': load_semeval_data(data_paths=semeval_data_paths),
+        'hatexplain': load_hatexplain_data(data_paths=hatexplain_data_paths)
+    }
 
+
+HURTLEX_TSV = 'data/toxic-lexicon/hurtlex/hurtlex_EN.tsv'
+
+WIEGAND_TXTs = MappingProxyType({
+    'base': 'data/toxic-lexicon/wiegand/baseLexicon.txt',
+    'expanded': 'data/toxic-lexicon/wiegand/expandedLexicon.txt',
+})
+
+
+def load_hurtlex(data_path: str = HURTLEX_TSV):
+    lexicon = pd.read_csv(data_path, sep='\t')
+    return {
+        'hurtlex-cons': set(lexicon[lexicon['level'] == 'conservative']['lemma']),
+        'hurtlex-incl': set(lexicon['lemma']),
+    }
+
+
+def load_wiegand(data_paths: Dict[str, str] = WIEGAND_TXTs):
+    base = pd.read_csv(data_paths['base'], sep='\t', names=['word_pos', 'abusive'])
+    expanded = pd.read_csv(data_paths['expanded'], sep='\t', names=['word_pos', 'score'])
+    base[['word', 'pos']] = base.apply(lambda row: row.word_pos.split('_'), axis=1, result_type='expand')
+    expanded[['word', 'pos']] = expanded.apply(lambda row: row.word_pos.split('_'), axis=1, result_type='expand')
+
+    return {
+        'wiegand-base': set(base[base['abusive']]['word']),
+        'wiegand-expa': set(expanded[expanded['score'] > 0]['word']),
+    }
+
+
+def load_lexicons(hurtlex_data_path=HURTLEX_TSV, wiegand_data_paths=WIEGAND_TXTs):
+    return load_hurtlex(hurtlex_data_path) | load_wiegand(wiegand_data_paths)
+
+
+if __name__ == "__main__":
     def print_sample(df):
         print("\nTOXIC")
         print(df.loc[df['toxic']].head(8))
