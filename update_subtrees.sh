@@ -14,5 +14,5 @@ git subtree pull --prefix data-repos/cad cad_repo main --squash
 git subtree pull --prefix data-repos/hatexplain hatexplain_repo master --squash
 git subtree pull --prefix data-repos/semeval semeval_repo master --squash
 
-git subtree pull --prefix data-repos/hurtlex hurtlex_repo main --squash
-git subtree pull --prefix data-repos/wiegand wiegand_repo main --squash
+git subtree pull --prefix data-repos/hurtlex hurtlex_repo master --squash
+git subtree pull --prefix data-repos/wiegand wiegand_repo master --squash
