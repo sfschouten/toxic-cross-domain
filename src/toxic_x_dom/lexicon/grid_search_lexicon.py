@@ -1,7 +1,7 @@
 import argparse
 import csv
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import numpy as np
 
 from toxic_x_dom.lexicon.lexicon_construction import construct_lexicon, calculate_scores, count_tokens
@@ -54,15 +54,15 @@ def gridsearch(span_datasets, existing_lexicons, config):
         pbar_total = tqdm(total=total_steps, desc='Overall Progress')
 
         # for evaluation datasets
-        pbar1 = tqdm(span_datasets.items(), desc='Evaluation dataset', position=1, leave=False)
+        pbar1 = tqdm(span_datasets.items(), desc='Evaluation dataset', leave=False)
         for dev_dataset_key, dev_df in pbar1:
             pbar1.set_postfix({'key': dev_dataset_key})
 
-            pbar2 = tqdm(JOIN_PREDICTED, desc='Join predicted words?', position=1, leave=False)
+            pbar2 = tqdm(JOIN_PREDICTED, desc='Join predicted words?', leave=False)
             for join_predicted in pbar2:
                 pbar2.set_postfix({'?': str(join_predicted)})
 
-                pbar5 = tqdm(PROP_BINARY, desc='Propagate predictions from binary model?', position=1, leave=False)
+                pbar5 = tqdm(PROP_BINARY, desc='Propagate predictions from binary model?', leave=False)
                 for prop_binary in pbar5:
                     pbar5.set_postfix({'prop?': str(prop_binary)})
 
@@ -83,19 +83,22 @@ def gridsearch(span_datasets, existing_lexicons, config):
 
                     if config['constructed_lexicons']:
                         # for constructed lexicons
-                        pbar0 = tqdm(span_datasets.items(), desc="'Train' Dataset", position=0, leave=False)
+                        pbar0 = tqdm(span_datasets.items(), desc="'Train' Dataset",  leave=False)
                         for lexicon_key, _ in pbar0:
                             pbar0.set_postfix({'key': lexicon_key})
 
-                            pbar3 = tqdm(MIN_OCCURRENCE, desc='Min occurrence', position=1, leave=False)
+                            pbar3 = tqdm(MIN_OCCURRENCE, desc='Min occurrence', leave=False)
                             for min_occ in pbar3:
                                 pbar3.set_postfix({'min_occ': min_occ})
 
-                                pbar4 = tqdm(THETA, total=config['steps_theta'], desc='Theta', position=1, leave=False)
+                                pbar4 = tqdm(THETA, total=config['steps_theta'], desc='Theta',leave=False)
                                 for theta in pbar4:
                                     pbar4.set_postfix({'θ': theta})
                                     lexicon = constructed_lexicons[(lexicon_key, min_occ, theta)]
-                                    lexicon_tokens, _ = zip(*lexicon)
+                                    if len(lexicon) > 0:
+                                        lexicon_tokens, _ = zip(*lexicon)
+                                    else:
+                                        lexicon_tokens = []
                                     results = evaluate_lexicon(
                                         lexicon_tokens, dev_df,
                                         join_predicted_words=join_predicted,
