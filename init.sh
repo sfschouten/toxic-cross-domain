@@ -9,7 +9,7 @@ mkdir -p data/toxic-span/cad \
 pushd data/
   pushd toxic-span/
     pushd cad/
-      wget https://zenodo.org/record/4881008/files/data.zip?download=1 -O data.zip
+      curl https://zenodo.org/record/4881008/files/data.zip?download=1 -o data.zip
       unzip data.zip
     popd
 
