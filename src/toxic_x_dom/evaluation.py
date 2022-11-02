@@ -1,7 +1,34 @@
 import re
+from typing import Set
+
 import numpy as np
 
 from tqdm import tqdm
+
+
+def metrics(pred: Set, label: Set):
+    correct = pred & label
+    empty_label = empty_pred = empty_both = 0
+    if len(correct) > 0:
+        p = len(correct) / len(pred)
+        r = len(correct) / len(label)
+        f1 = 2 * p * r / (p + r)
+    # len(correct) == 0
+    elif len(label) > 0:  # prediction empty
+        p = float('nan')  # precision undefined
+        r = 0  # = len(correct) / len(label)
+        f1 = 0  # prediction was empty, label was not, so count as 0
+        empty_pred = 1
+    elif len(pred) > 0:  # label empty
+        p = 0  # = len(correct) / len(pred)
+        r = float('nan')  # recall undefined, not counted in average
+        f1 = 0  # label was empty, prediction was not, so count as 0
+        empty_label = 1
+    else:  # prediction and label are empty
+        p = r = f1 = 1  # correctly predicted no toxic language, so count as 1
+        empty_both = 1
+
+    return f1, p, r, (empty_pred, empty_label, empty_both)
 
 
 def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True, propagate_binary_predictions=True):
@@ -29,26 +56,10 @@ def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True,
                 max_ = max(pred)
                 pred = set(range(min_, max_ + 1))
 
-        correct = label & pred
-
-        if len(correct) > 0:
-            p = len(correct) / len(pred)
-            r = len(correct) / len(label)
-            f1 = 2 * p * r / (p + r)
-        # len(correct) == 0
-        elif len(label) > 0:  # prediction empty
-            p = float('nan')  # precision undefined
-            r = 0  # = len(correct) / len(label)
-            f1 = 0  # prediction was empty, label was not, so count as 0
-            nr_empty_pred += 1
-        elif len(pred) > 0:  # label empty
-            p = 0  # = len(correct) / len(pred)
-            r = float('nan')  # recall undefined, not counted in average
-            f1 = 0  # label was empty, prediction was not, so count as 0
-            nr_empty_label += 1
-        else:  # prediction and label are empty
-            p = r = f1 = 1  # correctly predicted no toxic language, so count as 1
-            nr_empty_both += 1
+        f1, p, r, (empty_pred, empty_label, empty_both) = metrics(pred, label)
+        nr_empty_pred += empty_pred
+        nr_empty_label += empty_label
+        nr_empty_both += empty_both
 
         split.at[index, 'Precision'] = p
         split.at[index, 'Recall'] = r

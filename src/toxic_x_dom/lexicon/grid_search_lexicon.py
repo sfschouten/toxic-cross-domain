@@ -126,8 +126,8 @@ if __name__ == "__main__":
 
     # the axes of the grid we search
     parser.add_argument('--min_occurrence_axis', default=[1, 3, 5, 7, 11], nargs='*')
-    parser.add_argument('--join_predicted_axis', choices=[True, False], default=[True], nargs='*')
-    parser.add_argument('--prop_binary_axis', choices=[True, False], default=[True], nargs='*')
+    parser.add_argument('--join_predicted_axis', choices=[True, False], default=[True, False], nargs='*')
+    parser.add_argument('--prop_binary_axis', choices=[True, False], default=[True, False], nargs='*')
 
     parser.add_argument('--min_theta', default=0.0, type=float)
     parser.add_argument('--max_theta', default=0.95, type=float)
