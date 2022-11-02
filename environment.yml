@@ -1,6 +1,7 @@
 channels:
   - defaults
 dependencies:
+  - defaults::numpy
   - defaults::pandas
   - defaults::nltk
   - defaults::scikit-learn

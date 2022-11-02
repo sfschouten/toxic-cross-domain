@@ -44,13 +44,16 @@ def load_cad_data(data_path: str = CAD_TSV):
             [re.escape(word) for word in toxic_text.split(' ')]
         )
 
-        match = re.search(exp, full_text, re.I)
-        if match is None:
+        matches = list(re.finditer(exp, full_text, re.I))
+        if len(matches) != 1:
+            print(f'\nFound a toxic span with {len(matches)} matches.')
             print(full_text)
             print(exp)
             print(toxic_text)
 
-        label = set(range(match.start(), match.end()))
+        label = set()
+        for match in matches:
+            label |= set(range(match.start(), match.end()))
 
         # don't count '[linebreak]'s
         for match in re.finditer(re.escape('[linebreak]'), full_text):
