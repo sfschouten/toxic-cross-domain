@@ -1,4 +1,6 @@
+import sys
 from types import MappingProxyType
+import logging
 
 import csv
 import re
@@ -46,10 +48,10 @@ def load_cad_data(data_path: str = CAD_TSV):
 
         matches = list(re.finditer(exp, full_text, re.I))
         if len(matches) != 1:
-            print(f'\nFound a toxic span with {len(matches)} matches.')
-            print(full_text)
-            print(exp)
-            print(toxic_text)
+            logging.debug(f' Found a toxic span with {len(matches)} matches.'
+                          f'\nFULL TEXT:\n{full_text}'
+                          f'\nREGEX:\n{exp}'
+                          f'\nTOXIC TEXT:\n{toxic_text}\n')
 
         label = set()
         for match in matches:
@@ -229,6 +231,8 @@ def load_lexicons(hurtlex_data_path=HURTLEX_TSV, wiegand_data_paths=WIEGAND_TXTs
 
 
 if __name__ == "__main__":
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
     def print_sample(df):
         print("\nTOXIC")
         print(df.loc[df['toxic']].head(8))
