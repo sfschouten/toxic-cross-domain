@@ -5,4 +5,7 @@ dependencies:
   - defaults::pandas
   - defaults::nltk
   - defaults::scikit-learn
+  - pytorch::pytorch
+  - huggingface::datasets
+  - huggingface::transformers
   - conda-forge::tqdm
