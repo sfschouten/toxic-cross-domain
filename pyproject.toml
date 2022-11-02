@@ -7,8 +7,6 @@ name = "toxic_x_dom"
 version = "0.0.1"
 authors = [
   { name="Stefan F. Schouten", email="sfschouten@gmail.com" },
-  { name="", email="" },
-  { name="", email="" },
 ]
 description = ""
 readme = "README.md"
