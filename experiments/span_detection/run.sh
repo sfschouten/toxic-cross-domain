@@ -1,0 +1,1 @@
+python ../../src/toxic_x_dom/span_prediction/huggingface.py bert.json

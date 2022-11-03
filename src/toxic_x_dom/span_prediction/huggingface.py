@@ -16,8 +16,6 @@
 """
 Fine-tuning the library models for token classification.
 """
-# You can also adapt this script on your own token classification task and datasets. Pointers for this are left as
-# comments.
 
 import logging
 import os
@@ -442,6 +440,9 @@ def main():
         labelled_mask = labels != -100
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
         label_mask = labelled_mask & ((labels == B) | (labels == I))
+
+        decoded = tokenizer.batch_decode(p.inputs)
+        re_encoded = tokenizer.batch_encode(decoded)
 
         rows = labels.shape[0]
         char_idxs = np.arange(labels.shape[1])
