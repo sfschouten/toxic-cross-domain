@@ -1,4 +1,5 @@
 import sys
+from dataclasses import dataclass
 from types import MappingProxyType
 import logging
 
@@ -8,6 +9,9 @@ import json
 from typing import Dict
 
 import pandas as pd
+
+import datasets
+from datasets import DownloadManager, Dataset, load_dataset
 
 CAD_TSV = 'data/toxic-span/cad/data/cad_v1_1.tsv'
 
@@ -198,6 +202,51 @@ def load_toxic_span_datasets(
     }
 
 
+@dataclass()
+class ToxicSpanBuilderConfig(datasets.BuilderConfig):
+    dataset_name: str = None
+
+    def __post_init__(self):
+        if self.dataset_name is None:
+            raise ValueError("Loading an Toxic Span dataset requires you specify "
+                             "the name of the dataset you want to load.")
+
+
+class ToxicSpanDatasetBuilder(datasets.ArrowBasedBuilder):
+    BUILDER_CONFIG_CLASS = ToxicSpanBuilderConfig
+    NAME_TO_FUNCTION = {
+        'cad': load_cad_data,
+        'semeval': load_semeval_data,
+        'hatexplain': load_hatexplain_data
+    }
+
+    def _info(self) -> datasets.DatasetInfo:
+        dataset_name = self.config.dataset_name
+        dataset = self.NAME_TO_FUNCTION[dataset_name]()
+        self.dataset = Dataset.from_pandas(dataset)
+
+        return self.dataset.info
+
+    def _split_generators(self, dl_manager: DownloadManager):
+        return [
+            datasets.SplitGenerator(
+                name=datasets.Split.TRAIN,
+                gen_kwargs={'split': self.dataset.filter(lambda sample: sample['split'] == 'train')}
+            ),
+            datasets.SplitGenerator(
+                name=datasets.Split.VALIDATION,
+                gen_kwargs={'split': self.dataset.filter(lambda sample: sample['split'] == 'dev')}
+            ),
+            datasets.SplitGenerator(
+                name=datasets.Split.TEST,
+                gen_kwargs={'split': self.dataset.filter(lambda sample: sample['split'] == 'test')}
+            ),
+        ]
+
+    def _generate_tables(self, split):
+        yield 0, split.data.table
+
+
 HURTLEX_TSV = 'data/toxic-lexicon/hurtlex/hurtlex_EN.tsv'
 
 WIEGAND_TXTs = MappingProxyType({
@@ -232,6 +281,8 @@ def load_lexicons(hurtlex_data_path=HURTLEX_TSV, wiegand_data_paths=WIEGAND_TXTs
 
 if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+    load_dataset(__file__, split='test', dataset_name='cad')
 
     def print_sample(df):
         print("\nTOXIC")

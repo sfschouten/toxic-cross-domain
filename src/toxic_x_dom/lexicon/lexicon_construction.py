@@ -2,6 +2,7 @@ from collections import Counter
 
 import math
 
+import argparse
 import nltk
 from nltk.tokenize import word_tokenize
 nltk.download('punkt')
@@ -74,6 +75,15 @@ def construct_lexicon(scores, theta=0.5):
 
 if __name__ == "__main__":
     from toxic_x_dom.data import load_cad_data, load_hatexplain_data, load_semeval_data
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--min_occurrence', default=[1, 3, 5, 7, 11], nargs='*')
+    parser.add_argument('--join_predicted', choices=[True, False], default=[True, False], nargs='*')
+
+    parser.add_argument('--min_theta', default=0.0, type=float)
+    parser.add_argument('--max_theta', default=0.95, type=float)
+    parser.add_argument('--steps_theta', default=21, type=int)
 
     datasets = {
         'cad': load_cad_data(),

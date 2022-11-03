@@ -8,4 +8,5 @@ dependencies:
   - pytorch::pytorch
   - huggingface::datasets
   - huggingface::transformers
+  - huggingface::huggingface_hub
   - conda-forge::tqdm
