@@ -9,24 +9,31 @@ from tqdm import tqdm
 def metrics(pred: Set, label: Set):
     correct = pred & label
     empty_label = empty_pred = empty_both = 0
-    if len(correct) > 0:
+
+    if len(pred) == 0 and len(label) > 0:
+        # only prediction is empty
+        p = float('nan')        # precision undefined
+        r = 0                   # = len(correct) / len(label)
+        f1 = 0                  # prediction was empty, label was not, so count as 0
+        empty_pred = 1
+    elif len(label) == 0 and len(pred) > 0:
+        # only label is empty
+        p = 0                   # = len(correct) / len(pred)
+        r = float('nan')        # recall undefined (nothing to recall), not counted in average
+        f1 = 0                  # label was empty, prediction was not, so count as 0
+        empty_label = 1
+    elif len(label) == 0 and len(pred) == 0:
+        # both are empty
+        p = r = float('nan')    # precision and recall are undefined
+        f1 = 1                  # correctly predicted no toxic language, so count as 1
+        empty_both = 1
+    elif len(correct) == 0:
+        # only intersection is empty
+        p = r = f1 = 0          # complete mismatch
+    else:
         p = len(correct) / len(pred)
         r = len(correct) / len(label)
         f1 = 2 * p * r / (p + r)
-    # len(correct) == 0
-    elif len(label) > 0:  # prediction empty
-        p = float('nan')  # precision undefined
-        r = 0  # = len(correct) / len(label)
-        f1 = 0  # prediction was empty, label was not, so count as 0
-        empty_pred = 1
-    elif len(pred) > 0:  # label empty
-        p = 0  # = len(correct) / len(pred)
-        r = float('nan')  # recall undefined, not counted in average
-        f1 = 0  # label was empty, prediction was not, so count as 0
-        empty_label = 1
-    else:  # prediction and label are empty
-        p = r = f1 = 1  # correctly predicted no toxic language, so count as 1
-        empty_both = 1
 
     return f1, p, r, (empty_pred, empty_label, empty_both)
 
