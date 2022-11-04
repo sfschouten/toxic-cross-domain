@@ -138,8 +138,16 @@ if __name__ == "__main__":
 
     existing = load_lexicons()
     _span_datasets = load_toxic_span_datasets()
+
+    # train binary classifiers
     _span_datasets = {
-        key: BINARY_TOXICITY_CLASSIFIERS[_config['binary_toxicity_classifier']](span_dataset)[0]
+        key: BINARY_TOXICITY_CLASSIFIERS[_config['binary_toxicity_classifier']](span_dataset)
         for key, span_dataset in _span_datasets.items()
     }
-    gridsearch(_span_datasets, existing, _config)
+
+    print(f'F1 scores for binary classifiers on dev split: \n { {key: f1 for key, (_, f1) in _span_datasets.items()} }')
+
+    gridsearch(
+        {key: func for key, (func, _) in _span_datasets.items()},
+        existing, _config
+    )
