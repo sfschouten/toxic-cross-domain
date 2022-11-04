@@ -5,12 +5,21 @@ from sklearn.linear_model import LogisticRegression
 
 from sklearn import metrics
 
+from nltk.stem import PorterStemmer
 
 DEFAULT_MODEL = LogisticRegression(max_iter=1000, class_weight='balanced')
 
 
 def add_predictions_to_datasets(dataset, model=DEFAULT_MODEL):
-    vectorizer = CountVectorizer(lowercase=True, stop_words='english', max_features=2000)
+    vectorizer_kwargs = dict(lowercase=True, stop_words='english', max_features=2000)
+    analyzer = CountVectorizer(**vectorizer_kwargs).build_analyzer()
+    stemmer = PorterStemmer()
+
+    def stemmed_words(doc):
+        return (stemmer.stem(w) for w in analyzer(doc))
+
+    vectorizer = CountVectorizer(**vectorizer_kwargs, analyzer=stemmed_words)
+
     dataset['bag'] = vectorizer.fit_transform(dataset['full_text'].values).todense().tolist()
 
     train_split = dataset.loc[dataset['split'] == 'train']
