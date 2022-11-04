@@ -1,29 +1,42 @@
 import sys
-from dataclasses import dataclass
-from types import MappingProxyType
-import logging
-
+import os
 import csv
 import re
 import json
+import logging
+from dataclasses import dataclass
 from typing import Dict
+from types import MappingProxyType
 
 import pandas as pd
+from dotenv import load_dotenv
 
 import datasets
 from datasets import DownloadManager, Dataset, load_dataset
 
-CAD_TSV = 'data/toxic-span/cad/data/cad_v1_1.tsv'
+load_dotenv()
+
+PROJECT_HOME = os.getenv('TOXIC_X_DOM_HOME')
+
+CAD_TSV = os.path.join(PROJECT_HOME, 'data/toxic-span/cad/data/cad_v1_1.tsv')
 
 SEMEVAL_CSVs = MappingProxyType({
-    'train': 'data/toxic-span/semeval/tsd_train.csv',
-    'trial': 'data/toxic-span/semeval/tsd_trial.csv',
-    'test': 'data/toxic-span/semeval/tsd_test.csv',
+    'train': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/tsd_train.csv'),
+    'trial': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/tsd_trial.csv'),
+    'test': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/tsd_test.csv'),
 })
 
 HATEXPLAIN_JSONs = MappingProxyType({
-    'data': 'data/toxic-span/hatexplain/dataset.json',
-    'splits': 'data/toxic-span/hatexplain/post_id_divisions.json',
+    'data': os.path.join(PROJECT_HOME, 'data/toxic-span/hatexplain/dataset.json'),
+    'splits': os.path.join(PROJECT_HOME, 'data/toxic-span/hatexplain/post_id_divisions.json'),
+
+})
+
+HURTLEX_TSV = os.path.join(PROJECT_HOME, 'data/toxic-lexicon/hurtlex/hurtlex_EN.tsv')
+
+WIEGAND_TXTs = MappingProxyType({
+    'base': os.path.join(PROJECT_HOME, 'data/toxic-lexicon/wiegand/baseLexicon.txt'),
+    'expanded': os.path.join(PROJECT_HOME, 'data/toxic-lexicon/wiegand/expandedLexicon.txt'),
 })
 
 
@@ -247,14 +260,6 @@ class ToxicSpanDatasetBuilder(datasets.ArrowBasedBuilder):
         yield 0, split.data.table
 
 
-HURTLEX_TSV = 'data/toxic-lexicon/hurtlex/hurtlex_EN.tsv'
-
-WIEGAND_TXTs = MappingProxyType({
-    'base': 'data/toxic-lexicon/wiegand/baseLexicon.txt',
-    'expanded': 'data/toxic-lexicon/wiegand/expandedLexicon.txt',
-})
-
-
 def load_hurtlex(data_path: str = HURTLEX_TSV):
     lexicon = pd.read_csv(data_path, sep='\t')
     return {
@@ -284,11 +289,13 @@ if __name__ == "__main__":
 
     load_dataset(__file__, split='test', dataset_name='cad')
 
+
     def print_sample(df):
         print("\nTOXIC")
         print(df.loc[df['toxic']].head(8))
         print("\nNON-TOXIC")
         print(df.loc[~df['toxic']].head(8))
+
 
     print("Sample from CAD data.")
     print_sample(load_cad_data())

@@ -39,3 +39,8 @@ popd
 
 # install package locally
 pip install -e .
+
+
+# create .env file and define project home
+rm .env
+echo "TOXIC_X_DOM_HOME=$PWD" > .env
