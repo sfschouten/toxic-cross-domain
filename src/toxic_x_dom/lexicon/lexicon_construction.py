@@ -78,26 +78,32 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--min_occurrence', default=[1, 3, 5, 7, 11], nargs='*')
-    parser.add_argument('--join_predicted', choices=[True, False], default=[True, False], nargs='*')
+    parser.add_argument('--dataset', choices=['cad, semeval, hatexplain'], default='hatexplain')
 
-    parser.add_argument('--min_theta', default=0.0, type=float)
-    parser.add_argument('--max_theta', default=0.95, type=float)
-    parser.add_argument('--steps_theta', default=21, type=int)
+    parser.add_argument('--min_occurrence', default=7)
+    parser.add_argument('--join_predicted', choices=[True, False], default=True)
+
+    parser.add_argument('--theta', default=0.3, type=float)
+
+    args = parser.parse_args()
 
     datasets = {
-        'cad': load_cad_data(),
-        'semeval': load_semeval_data(),
-        'hatexplain': load_hatexplain_data()
+        'cad': load_cad_data,
+        'semeval': load_semeval_data,
+        'hatexplain': load_hatexplain_data
     }
 
-    for dataset_key, df in datasets.items():
-        print(dataset_key)
-        _in_abusive, _whole_corpus, _tokens = count_tokens(df, non_neutral_only=False, minimum_occurrences=6)
+    df = datasets[args.dataset]()
+    _in_abusive, _whole_corpus, _tokens = count_tokens(
+        df, non_neutral_only=False, minimum_occurrences=args.min_occurrence
+    )
 
-        scores_ = calculate_scores(_in_abusive, _whole_corpus, _tokens)
-        lexicon = construct_lexicon(scores_, theta=0.5)
-        print(len(lexicon))
-        print(min(x[1] for x in lexicon), max(x[1] for x in lexicon))
-        print(min(scores_.values()), max(scores_.values()))
-        print()
+    scores_ = calculate_scores(_in_abusive, _whole_corpus, _tokens)
+    lexicon = construct_lexicon(scores_, theta=args.theta)
+
+    import csv
+
+    with open('lexicon.csv', 'w') as out:
+        csv_out = csv.writer(out)
+        csv_out.writerow(['word', 'toxicity'])
+        csv_out.writerows(lexicon)
