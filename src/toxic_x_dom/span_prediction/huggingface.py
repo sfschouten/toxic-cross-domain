@@ -443,6 +443,8 @@ def main():
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
         label_mask = labelled_mask & ((labels == B) | (labels == I))
 
+        toxic_mask = label_mask.any(axis=-1)
+
         # decode and re-encode for easy token-to-character conversion (using BatchEncoding)
         inputs = [[t for t in row if t != -100] for row in p.inputs]
         decoded = tokenizer.batch_decode(inputs, skip_special_tokens=True)
@@ -450,7 +452,7 @@ def main():
 
         nr_rows = labels.shape[0]
         char_idxs = np.arange(max(len(sample) for sample in decoded))
-        f1, p, r = 0, 0, 0
+        f1, p, r = np.full(nr_rows, np.nan), np.full(nr_rows, np.nan), np.full(nr_rows, np.nan)
         for i in range(nr_rows):
             offsets = re_encoded[i].offsets
 
@@ -468,10 +470,20 @@ def main():
             pred_chars = set(char_idxs[:l][char_prediction_mask])
             label_chars = set(char_idxs[:l][char_label_mask])
             _f1, _p, _r, _ = metrics_fn(pred_chars, label_chars)
-            f1 += _f1
-            p += _p
-            r += _r
-        return {'f1': f1 / nr_rows, 'precision': p / nr_rows, 'recall': r / nr_rows}
+            f1[i] = _f1
+            p[i] = _p
+            r[i] = _r
+        return {
+            'F1 (micro)': np.nanmean(f1),
+            'Precision (micro)': np.nanmean(p),
+            'Recall (micro)': np.nanmean(r),
+            'F1 (toxic)': np.nanmean(f1[toxic_mask]),
+            'Precision (toxic)': np.nanmean(p[toxic_mask]),
+            'Recall (toxic)': np.nanmean(r[toxic_mask]),
+            'F1 (non-toxic)': np.nanmean(f1[~toxic_mask]),
+            'Precision (non-toxic)': np.nanmean(p[~toxic_mask]),
+            'Recall (non-toxic)': np.nanmean(r[~toxic_mask]),
+        }
 
     # Initialize our Trainer
     trainer = Trainer(
