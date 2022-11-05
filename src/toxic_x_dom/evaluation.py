@@ -38,12 +38,16 @@ def metrics(pred: Set, label: Set):
     return f1, p, r, (empty_pred, empty_label, empty_both)
 
 
-def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True, propagate_binary_predictions=True):
+def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True, propagate_binary_predictions=True,
+                     tokenized_search=False, stemming=True):
     split = df[df['split'] == split].copy()
     split['Precision'] = np.nan
     split['Recall'] = np.nan
     split['F1'] = np.nan
     split['% Predicted'] = np.nan
+
+    if stemming and not tokenized_search:
+        raise ValueError('Cannot do stemming unless using tokenized search.')
 
     nr_empty_pred = nr_empty_label = nr_empty_both = 0
     for index, row in tqdm(split.iterrows(), total=len(split), leave=False):
@@ -58,10 +62,15 @@ def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True,
             for match in re.finditer(expr, full_text, re.I):
                 pred.update(set(range(match.start(), match.end())))
 
-            if join_predicted_words and len(pred) > 0:
-                min_ = min(pred)
-                max_ = max(pred)
-                pred = set(range(min_, max_ + 1))
+            if len(pred) > 0:
+                if join_predicted_words:
+                    # assume all space between toxic words is part of the span we want to predict
+                    min_ = min(pred)
+                    max_ = max(pred)
+                    pred = set(range(min_, max_ + 1))
+                else:
+                    # assume two toxic words separated by single character should be one span
+                    pred |= {x+1 for x in pred if x+2 in pred}
 
         f1, p, r, (empty_pred, empty_label, empty_both) = metrics(pred, label)
         nr_empty_pred += empty_pred
