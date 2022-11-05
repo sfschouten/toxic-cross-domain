@@ -6,6 +6,6 @@
   "do_eval": true,
   "evaluation_strategy": "steps",
   "overwrite_output_dir": true,
-  "logging_steps": 100,
+  "logging_steps": 500,
   "include_inputs_for_metrics": true
 }
