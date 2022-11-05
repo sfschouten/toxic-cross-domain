@@ -22,6 +22,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+import itertools
 
 import datasets
 import numpy as np
@@ -413,6 +414,7 @@ def main():
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on validation dataset",
             )
+            eval_dataset = eval_dataset.shard(num_shards=8, index=0)
 
     if training_args.do_predict:
         if "test" not in raw_datasets:
@@ -441,20 +443,35 @@ def main():
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
         label_mask = labelled_mask & ((labels == B) | (labels == I))
 
-        decoded = tokenizer.batch_decode(p.inputs)
-        re_encoded = tokenizer.batch_encode(decoded)
+        # decode and re-encode for easy token-to-character conversion (using BatchEncoding)
+        inputs = [[t for t in row if t != -100] for row in p.inputs]
+        decoded = tokenizer.batch_decode(inputs, skip_special_tokens=True)
+        re_encoded = tokenizer(decoded)
 
-        rows = labels.shape[0]
-        char_idxs = np.arange(labels.shape[1])
+        nr_rows = labels.shape[0]
+        char_idxs = np.arange(max(len(sample) for sample in decoded))
         f1, p, r = 0, 0, 0
-        for i in range(rows):
-            pred_chars = set(char_idxs[prediction_mask[i]])
-            label_chars = set(char_idxs[label_mask[i]])
+        for i in range(nr_rows):
+            offsets = re_encoded[i].offsets
+
+            def convert_mask_to_char_level(mask):
+                # use BatchEncoding.offsets to get the number of characters per token and if there should be a space
+                return np.array(list(itertools.chain.from_iterable([
+                    ([] if os1 is None or os0[1] == os1[0] else [False]) + [t_toxic] * (os0[1] - os0[0])
+                    for t_toxic, os0, os1 in zip(mask, offsets, offsets[1:]+[None])
+                ]))[1:])
+
+            char_prediction_mask = convert_mask_to_char_level(prediction_mask[i])
+            char_label_mask = convert_mask_to_char_level(label_mask[i])
+
+            l, = char_prediction_mask.shape
+            pred_chars = set(char_idxs[:l][char_prediction_mask])
+            label_chars = set(char_idxs[:l][char_label_mask])
             _f1, _p, _r, _ = metrics_fn(pred_chars, label_chars)
             f1 += _f1
             p += _p
             r += _r
-        return {'f1': f1 / rows, 'precision': p / rows, 'recall': r / rows}
+        return {'f1': f1 / nr_rows, 'precision': p / nr_rows, 'recall': r / nr_rows}
 
     # Initialize our Trainer
     trainer = Trainer(
