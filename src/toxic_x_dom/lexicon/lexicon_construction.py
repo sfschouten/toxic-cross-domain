@@ -78,10 +78,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', choices=['cad, semeval, hatexplain'], default='hatexplain')
+    parser.add_argument('--dataset', choices=['cad', 'semeval', 'hatexplain'], default='hatexplain')
 
-    parser.add_argument('--min_occurrence', default=7)
-    parser.add_argument('--join_predicted', choices=[True, False], default=True)
+    parser.add_argument('--min_occurrence', default=7, type=int)
+    parser.add_argument('--join_predicted', choices=[True, False], default=True, type=bool)
 
     parser.add_argument('--theta', default=0.3, type=float)
 
