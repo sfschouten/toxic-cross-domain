@@ -414,7 +414,6 @@ def main():
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on validation dataset",
             )
-            eval_dataset = eval_dataset.shard(num_shards=8, index=0)
 
     if training_args.do_predict:
         if "test" not in raw_datasets:
