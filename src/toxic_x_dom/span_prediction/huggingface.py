@@ -433,9 +433,9 @@ def main():
     # Data collator
     data_collator = DataCollatorForTokenClassification(tokenizer, pad_to_multiple_of=8 if training_args.fp16 else None)
 
-    def compute_metrics(p):
-        labels = p.label_ids
-        logits = p.predictions
+    def compute_metrics(pred):
+        labels = pred.label_ids
+        logits = pred.predictions
         predictions = logits.argmax(axis=-1)
 
         labelled_mask = labels != -100
@@ -445,7 +445,7 @@ def main():
         toxic_mask = label_mask.any(axis=-1)
 
         # decode and re-encode for easy token-to-character conversion (using BatchEncoding)
-        inputs = [[t for t in row if t != -100] for row in p.inputs]
+        inputs = [[t for t in row if t != -100] for row in pred.inputs]
         decoded = tokenizer.batch_decode(inputs, skip_special_tokens=True)
         re_encoded = tokenizer(decoded)
 
@@ -466,8 +466,11 @@ def main():
             char_label_mask = convert_mask_to_char_level(label_mask[i])
 
             l, = char_prediction_mask.shape
-            pred_chars = set(char_idxs[:l][char_prediction_mask])
-            label_chars = set(char_idxs[:l][char_label_mask])
+            if l > 0:
+                pred_chars = set(char_idxs[:l][char_prediction_mask])
+                label_chars = set(char_idxs[:l][char_label_mask])
+            else:
+                pred_chars = label_chars = set()
             _f1, _p, _r, _ = metrics_fn(pred_chars, label_chars)
             f1[i] = _f1
             p[i] = _p
