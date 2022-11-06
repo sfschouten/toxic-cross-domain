@@ -1,7 +1,7 @@
 {
   "model_name_or_path": "bert-base-cased",
-  "output_dir": "outputs/bert/",
-  "dataset_name": "cad",
+  "output_dir": "outputs/bert-semeval/",
+  "dataset_name": "semeval",
   "do_train": true,
   "do_eval": true,
   "evaluation_strategy": "steps",
