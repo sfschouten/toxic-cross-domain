@@ -10,3 +10,4 @@ dependencies:
   - huggingface::transformers
   - huggingface::huggingface_hub
   - conda-forge::tqdm
+  - conda-forge::python-dotenv
