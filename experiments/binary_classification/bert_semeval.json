@@ -1,0 +1,15 @@
+{
+  "model_name_or_path": "bert-base-cased",
+  "dataset_name": "semeval",
+  "do_train": true,
+  "per_device_train_batch_size": 8,
+  "gradient_accumulation_steps": 4,
+  "num_train_epochs": 50,
+  "early_stopping_patience": 5,
+  "do_eval": true,
+  "evaluation_strategy": "steps",
+  "logging_steps": 500,
+  "output_dir": "outputs/bert-semeval/",
+  "overwrite_output_dir": true,
+  "load_best_model_at_end": true
+}
