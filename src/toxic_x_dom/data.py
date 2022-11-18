@@ -113,7 +113,7 @@ def load_hatexplain_data(data_paths=HATEXPLAIN_JSONs):
     hxpl_df = pd.read_json(data_paths['data'], orient="index")
     hxpl_df = hxpl_df.rename(columns={"post_id": "id"})
 
-    hxpl_df['toxic'] = hxpl_df.apply(lambda row: row.rationales != [], axis=1)
+    hxpl_df['toxic'] = hxpl_df.apply(lambda row: row.labelrationales != [], axis=1)
     hxpl_df['full_text'] = hxpl_df.apply(
         lambda row: " ".join(row.post_tokens),
         axis=1
@@ -269,29 +269,30 @@ class ToxicSpanDatasetBuilder(datasets.ArrowBasedBuilder):
 
     def _info(self) -> datasets.DatasetInfo:
         dataset_name = self.config.dataset_name
-        dataset = self.NAME_TO_FUNCTION[dataset_name]()
-        self.dataset = Dataset.from_pandas(dataset)
-
-        return self.dataset.info
+        self.dataset = self.NAME_TO_FUNCTION[dataset_name]()
+        all_data_hf = Dataset.from_pandas(self.dataset)
+        print(all_data_hf.info)
+        return all_data_hf.info
 
     def _split_generators(self, dl_manager: DownloadManager):
+
         return [
             datasets.SplitGenerator(
                 name=datasets.Split.TRAIN,
-                gen_kwargs={'split': self.dataset.filter(lambda sample: sample['split'] == 'train')}
+                gen_kwargs={'split_name': 'train'}
             ),
             datasets.SplitGenerator(
                 name=datasets.Split.VALIDATION,
-                gen_kwargs={'split': self.dataset.filter(lambda sample: sample['split'] == 'dev')}
+                gen_kwargs={'split_name': 'dev'}
             ),
             datasets.SplitGenerator(
                 name=datasets.Split.TEST,
-                gen_kwargs={'split': self.dataset.filter(lambda sample: sample['split'] == 'test')}
+                gen_kwargs={'split_name': 'test'}
             ),
         ]
 
-    def _generate_tables(self, split):
-        yield 0, split.data.table
+    def _generate_tables(self, split_name):
+        yield 0, Dataset.from_pandas(self.dataset.loc[self.dataset['split'] == split_name]).data.table
 
 
 def load_hurtlex(data_path: str = HURTLEX_TSV):
