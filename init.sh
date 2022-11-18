@@ -3,6 +3,7 @@ rm -rf data/
 mkdir -p data/toxic-span/cad \
          data/toxic-span/hatexplain \
          data/toxic-span/semeval \
+         data/toxic-span/semeval/civil_comments \
          data/toxic-lexicon/hurtlex \
          data/toxic-lexicon/wiegand \
 
@@ -22,6 +23,12 @@ pushd data/
       cp ../../../data-repos/semeval/SemEval2021/data/tsd_trial.csv .
       cp ../../../data-repos/semeval/SemEval2021/data/tsd_test.csv .
       cp ../../../data-repos/semeval/SemEval2021/data/tsd_train.csv .
+      pushd civil_comments
+        curl https://storage.googleapis.com/jigsaw-unintended-bias-in-toxicity-classification/civil_comments.zip -o civil_comments.zip
+        unzip civil_comments.zip
+        rm civil_comments.zip
+        chmod u+r *
+      popd
     popd
   popd
 
