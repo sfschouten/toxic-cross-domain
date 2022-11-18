@@ -306,7 +306,7 @@ def main():
         dataset_name=data_args.dataset_name
     )
 
-    class_label = ClassLabel(names=['toxic', 'non-toxic'])
+    class_label = ClassLabel(names=['non-toxic', 'toxic'])
     label_list = class_label.names
 
     # Labels
