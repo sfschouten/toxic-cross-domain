@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 import datasets
 from datasets import DownloadManager, Dataset, load_dataset
 
+from tqdm import tqdm
+
 load_dotenv()
 
 PROJECT_HOME = os.getenv('TOXIC_X_DOM_HOME')
@@ -24,6 +26,7 @@ SEMEVAL_CSVs = MappingProxyType({
     'train': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/tsd_train.csv'),
     'trial': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/tsd_trial.csv'),
     'test': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/tsd_test.csv'),
+    'civil_comments_train': os.path.join(PROJECT_HOME, 'data/toxic-span/semeval/civil_comments/train.csv'),
 })
 
 HATEXPLAIN_JSONs = MappingProxyType({
@@ -154,7 +157,7 @@ def load_hatexplain_data(data_paths=HATEXPLAIN_JSONs):
     return hxpl_df
 
 
-def load_semeval_data(data_paths=SEMEVAL_CSVs):
+def load_semeval_data(data_paths=SEMEVAL_CSVs, ratio_nontoxic=1., civil_comments_sample_seed=0):
     sem_df_train = pd.read_csv(data_paths['train'], quotechar='"', keep_default_na=False, header=0)
     sem_df_trial = pd.read_csv(data_paths['trial'], quotechar='"', keep_default_na=False, header=0)
     sem_df_test = pd.read_csv(data_paths['test'], quotechar='"', keep_default_na=False, header=0)
@@ -162,8 +165,10 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs):
     sem_df_trial['split'] = 'dev'
     sem_df_test['split'] = 'test'
     sem_df = pd.concat((sem_df_train, sem_df_trial, sem_df_test))
+    len_semeval_train = len(sem_df_train)
 
     sem_df = sem_df.rename(columns={"text": "full_text"})
+    del sem_df_train, sem_df_trial, sem_df_test
 
     def convert_spans(spans_str):
         if spans_str == "[]":
@@ -172,7 +177,7 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs):
 
     sem_df['spans'] = sem_df.apply(lambda row: convert_spans(row.spans), axis=1)
     sem_df['id'] = sem_df.apply(lambda row: f"{row.split}.{row.name}", axis=1)
-    sem_df['toxic'] = sem_df.apply(lambda row: row.spans != [], axis=1)
+    sem_df['toxic'] = True
     sem_df['toxic_mask'] = sem_df.apply(lambda row: [
         i in row.spans for i, _ in enumerate(row.full_text)], axis=1)
 
@@ -200,6 +205,35 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs):
         lambda row: extract_toxic_tokens(row.full_text, row.spans), axis=1)
 
     sem_df = sem_df.drop(columns=['spans'])
+
+    if ratio_nontoxic > 0:
+        # supplement with non-toxic samples from civil comments
+        nr_nontoxic = len_semeval_train * ratio_nontoxic
+        civil_df_train = pd.concat([chunk for chunk in tqdm(
+            pd.read_csv(
+                data_paths['civil_comments_train'], chunksize=1000, quotechar='"', keep_default_na=False, header=0
+            ), desc='Loading Civil Comments data'
+        )])
+        civil_df_train = civil_df_train.drop(
+            columns=civil_df_train.columns.difference(['id', 'target', 'comment_text', 'toxicity_annotator_count'])
+        )
+        civil_df_train = civil_df_train.rename(columns={'comment_text': 'full_text'})
+        civil_df_train = civil_df_train.loc[
+            (civil_df_train['target'] < 0.5) & (civil_df_train['toxicity_annotator_count'] > 3)
+        ]
+        civil_df_train['id'] = civil_df_train.apply(lambda row: f"cc.{row.id}", axis=1)
+        civil_df_train['split'] = 'train'
+        civil_df_train['toxic'] = False
+        civil_df_train['toxic_mask'] = civil_df_train.apply(lambda row: [False] * len(row.full_text), axis=1)
+        civil_df_train['toxic_tokens'] = [[] for _ in range(len(civil_df_train))]
+        if nr_nontoxic < len(civil_df_train):
+            logging.info(f'Drawing {int(nr_nontoxic)} non-toxic samples from total of {len(civil_df_train)}.')
+            civil_df_train = civil_df_train.sample(n=int(nr_nontoxic), random_state=civil_comments_sample_seed)
+        else:
+            logging.info('Not enough data in Civil Comments to get desired ratio, including all.')
+        civil_df_train = civil_df_train.drop(columns=['target', 'toxicity_annotator_count'])
+        sem_df = pd.concat((sem_df,  civil_df_train))
+
     return sem_df
 
 
@@ -286,8 +320,6 @@ def load_lexicons(hurtlex_data_path=HURTLEX_TSV, wiegand_data_paths=WIEGAND_TXTs
 
 if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-
-    load_dataset(__file__, split='test', dataset_name='cad')
 
 
     def print_sample(df):
