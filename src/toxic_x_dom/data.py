@@ -113,7 +113,7 @@ def load_hatexplain_data(data_paths=HATEXPLAIN_JSONs):
     hxpl_df = pd.read_json(data_paths['data'], orient="index")
     hxpl_df = hxpl_df.rename(columns={"post_id": "id"})
 
-    hxpl_df['toxic'] = hxpl_df.apply(lambda row: row.labelrationales != [], axis=1)
+    hxpl_df['toxic'] = hxpl_df.apply(lambda row: row.rationales != [], axis=1)
     hxpl_df['full_text'] = hxpl_df.apply(
         lambda row: " ".join(row.post_tokens),
         axis=1
