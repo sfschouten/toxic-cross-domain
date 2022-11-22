@@ -7,7 +7,9 @@ import logging
 from dataclasses import dataclass
 from typing import Dict
 from types import MappingProxyType
+from collections import Counter
 
+import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -113,7 +115,11 @@ def load_hatexplain_data(data_paths=HATEXPLAIN_JSONs):
     hxpl_df = pd.read_json(data_paths['data'], orient="index")
     hxpl_df = hxpl_df.rename(columns={"post_id": "id"})
 
-    hxpl_df['toxic'] = hxpl_df.apply(lambda row: row.rationales != [], axis=1)
+    def is_toxic(annotators):
+        counts = Counter([annotator['label'] for annotator in annotators])
+        return counts['offensive'] + counts['hatespeech'] > counts['normal']
+
+    hxpl_df['toxic'] = hxpl_df.apply(lambda row: is_toxic(row.annotators), axis=1)
     hxpl_df['full_text'] = hxpl_df.apply(
         lambda row: " ".join(row.post_tokens),
         axis=1
@@ -214,23 +220,30 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs, ratio_nontoxic=1., civil_comments
                 data_paths['civil_comments_train'], chunksize=1000, quotechar='"', keep_default_na=False, header=0
             ), desc='Loading Civil Comments data'
         )])
+
         civil_df_train = civil_df_train.drop(
             columns=civil_df_train.columns.difference(['id', 'target', 'comment_text', 'toxicity_annotator_count'])
         )
         civil_df_train = civil_df_train.rename(columns={'comment_text': 'full_text'})
+
+        # Require at least 3 annotators, at least half of whom reported no toxicity
+        # (Pavlopoulos et al. require the same except at least half must report that it *is* toxic).
         civil_df_train = civil_df_train.loc[
             (civil_df_train['target'] < 0.5) & (civil_df_train['toxicity_annotator_count'] > 3)
         ]
+
         civil_df_train['id'] = civil_df_train.apply(lambda row: f"cc.{row.id}", axis=1)
         civil_df_train['split'] = 'train'
         civil_df_train['toxic'] = False
         civil_df_train['toxic_mask'] = civil_df_train.apply(lambda row: [False] * len(row.full_text), axis=1)
         civil_df_train['toxic_tokens'] = [[] for _ in range(len(civil_df_train))]
+
         if nr_nontoxic < len(civil_df_train):
             logging.info(f'Drawing {int(nr_nontoxic)} non-toxic samples from total of {len(civil_df_train)}.')
             civil_df_train = civil_df_train.sample(n=int(nr_nontoxic), random_state=civil_comments_sample_seed)
         else:
             logging.info('Not enough data in Civil Comments to get desired ratio, including all.')
+
         civil_df_train = civil_df_train.drop(columns=['target', 'toxicity_annotator_count'])
         sem_df = pd.concat((sem_df,  civil_df_train))
 
@@ -271,7 +284,6 @@ class ToxicSpanDatasetBuilder(datasets.ArrowBasedBuilder):
         dataset_name = self.config.dataset_name
         self.dataset = self.NAME_TO_FUNCTION[dataset_name]()
         all_data_hf = Dataset.from_pandas(self.dataset)
-        print(all_data_hf.info)
         return all_data_hf.info
 
     def _split_generators(self, dl_manager: DownloadManager):
@@ -322,19 +334,33 @@ def load_lexicons(hurtlex_data_path=HURTLEX_TSV, wiegand_data_paths=WIEGAND_TXTs
 if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
-
-    def print_sample(df):
+    def print_sample(df, name):
+        print(f"Sample from {name} data.")
         print("\nTOXIC")
         print(df.loc[df['toxic']].head(8))
         print("\nNON-TOXIC")
         print(df.loc[~df['toxic']].head(8))
 
+    def print_crosstab_toxic_nospan(df):
+        # print how many samples labelled toxic do not have spans
+        has_span = df.apply(lambda row: np.array(row.toxic_mask).any(), axis=1)
+        is_toxic =  df['toxic']
+        split = df['split']
+        crosstab = pd.crosstab(has_span, [split, is_toxic],
+                               rownames=['Has span?'], colnames=['Split', 'Is toxic?'])
+        print(crosstab)
 
-    print("Sample from CAD data.")
-    print_sample(load_cad_data())
+    cad = load_cad_data()
+    print_sample(cad, 'CAD')
+    print_crosstab_toxic_nospan(cad)
+    print('\n\n')
 
-    print("Sample from HateXplain data.")
-    print_sample(load_hatexplain_data())
+    hxpl = load_hatexplain_data()
+    print_sample(hxpl, 'HateXplain')
+    print_crosstab_toxic_nospan(hxpl)
+    print('\n\n')
 
-    print("Sample from Semeval data.")
-    print_sample(load_semeval_data())
+    semeval = load_semeval_data()
+    print_sample(semeval, 'SemEval')
+    print_crosstab_toxic_nospan(semeval)
+    print('\n\n')
