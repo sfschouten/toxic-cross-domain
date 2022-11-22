@@ -434,7 +434,7 @@ def main():
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
         label_mask = labelled_mask & ((labels == B) | (labels == I))
 
-        toxic_mask = label_mask.any(axis=-1)
+        span_mask = label_mask.any(axis=-1)
 
         # decode and re-encode for easy token-to-character conversion (using BatchEncoding)
         inputs = [[t for t in row if t != -100] for row in pred.inputs]
@@ -471,12 +471,12 @@ def main():
             'F1 (micro)': np.nanmean(f1),
             'Precision (micro)': np.nanmean(p),
             'Recall (micro)': np.nanmean(r),
-            'F1 (toxic)': np.nanmean(f1[toxic_mask]),
-            'Precision (toxic)': np.nanmean(p[toxic_mask]),
-            'Recall (toxic)': np.nanmean(r[toxic_mask]),
-            'F1 (non-toxic)': np.nanmean(f1[~toxic_mask]),
-            'Precision (non-toxic)': np.nanmean(p[~toxic_mask]),
-            'Recall (non-toxic)': np.nanmean(r[~toxic_mask]),
+            'F1 (span)': np.nanmean(f1[span_mask]),
+            'Precision (span)': np.nanmean(p[span_mask]),
+            'Recall (span)': np.nanmean(r[span_mask]),
+            'F1 (no-span)': np.nanmean(f1[~span_mask]),
+            'Precision (no-span)': np.nanmean(p[~span_mask]),
+            'Recall (no-span)': np.nanmean(r[~span_mask]),
         }
 
     # Initialize our Trainer
