@@ -171,7 +171,7 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs, ratio_nontoxic=1., civil_comments
     sem_df_trial['split'] = 'dev'
     sem_df_test['split'] = 'test'
     sem_df = pd.concat((sem_df_train, sem_df_trial, sem_df_test))
-    len_semeval_train = len(sem_df_train)
+    len_semeval = len(sem_df_train), len(sem_df_trial), len(sem_df_test)
 
     sem_df = sem_df.rename(columns={"text": "full_text"})
     del sem_df_train, sem_df_trial, sem_df_test
@@ -213,39 +213,42 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs, ratio_nontoxic=1., civil_comments
     sem_df = sem_df.drop(columns=['spans'])
 
     if ratio_nontoxic > 0:
-        # supplement with non-toxic samples from civil comments
-        nr_nontoxic = len_semeval_train * ratio_nontoxic
-        civil_df_train = pd.concat([chunk for chunk in tqdm(
+        # Supplement with non-toxic samples from civil comments
+        civil_df = pd.concat([chunk for chunk in tqdm(
             pd.read_csv(
                 data_paths['civil_comments_train'], chunksize=1000, quotechar='"', keep_default_na=False, header=0
             ), desc='Loading Civil Comments data'
         )])
 
-        civil_df_train = civil_df_train.drop(
-            columns=civil_df_train.columns.difference(['id', 'target', 'comment_text', 'toxicity_annotator_count'])
+        # Drop unnecessary columns
+        civil_df = civil_df.drop(
+            columns=civil_df.columns.difference(['id', 'target', 'comment_text', 'toxicity_annotator_count'])
         )
-        civil_df_train = civil_df_train.rename(columns={'comment_text': 'full_text'})
+        civil_df = civil_df.rename(columns={'comment_text': 'full_text'})
 
         # Require at least 3 annotators, at least half of whom reported no toxicity
-        # (Pavlopoulos et al. require the same except at least half must report that it *is* toxic).
-        civil_df_train = civil_df_train.loc[
-            (civil_df_train['target'] < 0.5) & (civil_df_train['toxicity_annotator_count'] > 3)
-        ]
+        # (Pavlopoulos et al. require the same when selecting for toxic samples).
+        civil_df = civil_df.loc[(civil_df['target'] < 0.5) & (civil_df['toxicity_annotator_count'] > 3)]
 
-        civil_df_train['id'] = civil_df_train.apply(lambda row: f"cc.{row.id}", axis=1)
-        civil_df_train['split'] = 'train'
-        civil_df_train['toxic'] = False
-        civil_df_train['toxic_mask'] = civil_df_train.apply(lambda row: [False] * len(row.full_text), axis=1)
-        civil_df_train['toxic_tokens'] = [[] for _ in range(len(civil_df_train))]
-
-        if nr_nontoxic < len(civil_df_train):
-            logging.info(f'Drawing {int(nr_nontoxic)} non-toxic samples from total of {len(civil_df_train)}.')
-            civil_df_train = civil_df_train.sample(n=int(nr_nontoxic), random_state=civil_comments_sample_seed)
+        # Select appropriate number of samples given the desired ratio.
+        nr_nontoxic = tuple(length * ratio_nontoxic for length in len_semeval)
+        if sum(nr_nontoxic) <= len(civil_df):
+            logging.info(f'Drawing {int(sum(nr_nontoxic))} non-toxic samples from total of {len(civil_df)}.')
+            civil_df = civil_df.sample(n=int(sum(nr_nontoxic)), random_state=civil_comments_sample_seed)
         else:
-            logging.info('Not enough data in Civil Comments to get desired ratio, including all.')
+            raise ValueError('Not enough data in Civil Comments to get desired ratio.')
 
-        civil_df_train = civil_df_train.drop(columns=['target', 'toxicity_annotator_count'])
-        sem_df = pd.concat((sem_df,  civil_df_train))
+        civil_df['id'] = civil_df.apply(lambda row: f"cc.{row.id}", axis=1)
+        civil_df['toxic'] = False
+        civil_df['toxic_mask'] = civil_df.apply(lambda row: [False] * len(row.full_text), axis=1)
+        civil_df['toxic_tokens'] = [[] for _ in range(len(civil_df))]
+
+        s = np.cumsum(nr_nontoxic, dtype=np.int)
+        civil_df.loc[civil_df.index[:s[0]],     'split'] = 'train'
+        civil_df.loc[civil_df.index[s[0]:s[1]], 'split'] = 'dev'
+        civil_df.loc[civil_df.index[s[1]:],     'split'] = 'test'
+        civil_df = civil_df.drop(columns=['target', 'toxicity_annotator_count'])
+        sem_df = pd.concat((sem_df,  civil_df))
 
     return sem_df
 
