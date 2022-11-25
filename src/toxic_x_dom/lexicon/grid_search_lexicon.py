@@ -5,7 +5,7 @@ from tqdm.auto import tqdm
 import numpy as np
 
 from toxic_x_dom.lexicon.lexicon_construction import construct_lexicon, calculate_scores, count_tokens
-from toxic_x_dom.data import load_toxic_span_datasets, load_lexicons
+from toxic_x_dom.data import load_lexicons
 from toxic_x_dom.evaluation import evaluate_lexicon
 
 from toxic_x_dom.binary_classification.linear import add_predictions_to_dataset as default_linear
