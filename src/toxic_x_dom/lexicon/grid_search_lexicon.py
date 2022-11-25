@@ -8,8 +8,8 @@ from toxic_x_dom.lexicon.lexicon_construction import construct_lexicon, calculat
 from toxic_x_dom.data import load_toxic_span_datasets, load_lexicons
 from toxic_x_dom.evaluation import evaluate_lexicon
 
-from toxic_x_dom.binary_classifiers.linear import add_predictions_to_dataset as default_linear
-from toxic_x_dom.binary_classifiers.huggingface import add_predictions_to_dataset as default_huggingface
+from toxic_x_dom.binary_classification.linear import add_predictions_to_dataset as default_linear
+from toxic_x_dom.binary_classification.huggingface import add_predictions_to_dataset as default_huggingface
 
 BINARY_TOXICITY_CLASSIFIERS = {
     'count_based_logistic_regression': default_linear,
