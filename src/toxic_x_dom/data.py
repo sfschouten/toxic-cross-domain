@@ -253,6 +253,13 @@ def load_semeval_data(data_paths=SEMEVAL_CSVs, ratio_nontoxic=1., civil_comments
     return sem_df
 
 
+SPAN_DATASETS = {
+    'cad': load_cad_data,
+    'semeval': load_semeval_data,
+    'hatexplain': load_hatexplain_data
+}
+
+
 def load_toxic_span_datasets(
         cad_data_path=CAD_TSV,
         hatexplain_data_paths=HATEXPLAIN_JSONs,
@@ -290,20 +297,9 @@ class ToxicSpanDatasetBuilder(datasets.ArrowBasedBuilder):
         return all_data_hf.info
 
     def _split_generators(self, dl_manager: DownloadManager):
-
         return [
-            datasets.SplitGenerator(
-                name=datasets.Split.TRAIN,
-                gen_kwargs={'split_name': 'train'}
-            ),
-            datasets.SplitGenerator(
-                name=datasets.Split.VALIDATION,
-                gen_kwargs={'split_name': 'dev'}
-            ),
-            datasets.SplitGenerator(
-                name=datasets.Split.TEST,
-                gen_kwargs={'split_name': 'test'}
-            ),
+            datasets.SplitGenerator(name=split_key, gen_kwargs={'split_name': split_key})
+            for split_key in ['train', 'dev', 'test']
         ]
 
     def _generate_tables(self, split_name):

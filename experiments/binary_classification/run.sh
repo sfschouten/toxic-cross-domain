@@ -1,1 +1,1 @@
-python3 ../../src/toxic_x_dom/binary_classifiers/huggingface.py $*
+python3 ../../src/toxic_x_dom/binary_classification/huggingface.py $*

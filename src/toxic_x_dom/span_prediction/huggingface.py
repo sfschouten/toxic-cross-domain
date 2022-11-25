@@ -376,18 +376,18 @@ def main():
             )
 
     if training_args.do_eval:
-        if "validation" not in raw_datasets:
-            raise ValueError("--do_eval requires a validation dataset")
-        eval_dataset = raw_datasets["validation"]
+        if "dev" not in raw_datasets:
+            raise ValueError("--do_eval requires a development dataset")
+        eval_dataset = raw_datasets["dev"]
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
-        with training_args.main_process_first(desc="validation dataset map pre-processing"):
+        with training_args.main_process_first(desc="development dataset map pre-processing"):
             eval_dataset = eval_dataset.map(
                 tokenize_and_align_labels,
                 num_proc=data_args.preprocessing_num_workers,
                 load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on validation dataset",
+                desc="Running tokenizer on development dataset",
             )
 
     if training_args.do_predict:

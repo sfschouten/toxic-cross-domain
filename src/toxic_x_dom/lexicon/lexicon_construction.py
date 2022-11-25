@@ -74,7 +74,7 @@ def construct_lexicon(scores, theta=0.5):
 
 
 if __name__ == "__main__":
-    from toxic_x_dom.data import load_cad_data, load_hatexplain_data, load_semeval_data
+    from toxic_x_dom.data import SPAN_DATASETS
 
     parser = argparse.ArgumentParser()
 
@@ -87,13 +87,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    datasets = {
-        'cad': load_cad_data,
-        'semeval': load_semeval_data,
-        'hatexplain': load_hatexplain_data
-    }
-
-    df = datasets[args.dataset]()
+    df = SPAN_DATASETS[args.dataset]()
     _in_abusive, _whole_corpus, _tokens = count_tokens(
         df, non_neutral_only=False, minimum_occurrences=args.min_occurrence
     )
