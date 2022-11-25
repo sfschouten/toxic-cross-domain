@@ -8,10 +8,12 @@ from toxic_x_dom.lexicon.lexicon_construction import construct_lexicon, calculat
 from toxic_x_dom.data import load_toxic_span_datasets, load_lexicons
 from toxic_x_dom.evaluation import evaluate_lexicon
 
-from toxic_x_dom.binary_classifiers.linear import add_predictions_to_datasets as default_linear
+from toxic_x_dom.binary_classifiers.linear import add_predictions_to_dataset as default_linear
+from toxic_x_dom.binary_classifiers.huggingface import add_predictions_to_dataset as default_huggingface
 
 BINARY_TOXICITY_CLASSIFIERS = {
-    'count_based_logistic_regression': default_linear
+    'count_based_logistic_regression': default_linear,
+    'huggingface': default_huggingface,
 }
 
 
@@ -118,7 +120,7 @@ if __name__ == "__main__":
     # options
     parser.add_argument('--results_file', default='lexicon_results.csv', type=str)
     parser.add_argument('--binary_toxicity_classifier',
-                        choices=[],
+                        choices=list(BINARY_TOXICITY_CLASSIFIERS.keys()),
                         default='count_based_logistic_regression',
                         type=str)
     parser.add_argument('--skip_existing_lexicons', action='store_false', dest='existing_lexicons')
@@ -137,12 +139,12 @@ if __name__ == "__main__":
     _config = {**vars(args)}
 
     existing = load_lexicons()
-    _span_datasets = load_toxic_span_datasets()
 
-    # train binary classifiers
+    from toxic_x_dom.data import SPAN_DATASETS
+
+    # train/load binary classifiers
     _span_datasets = {
-        key: BINARY_TOXICITY_CLASSIFIERS[_config['binary_toxicity_classifier']](span_dataset)
-        for key, span_dataset in _span_datasets.items()
+        key: BINARY_TOXICITY_CLASSIFIERS[_config['binary_toxicity_classifier']](key) for key in SPAN_DATASETS.keys()
     }
 
     print(f'F1 scores for binary classifiers on dev split: \n { {key: f1 for key, (_, f1) in _span_datasets.items()} }')

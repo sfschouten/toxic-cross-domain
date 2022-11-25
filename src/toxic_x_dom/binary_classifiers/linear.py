@@ -7,10 +7,14 @@ from sklearn import metrics
 
 from nltk.stem import PorterStemmer
 
+from toxic_x_dom.data import SPAN_DATASETS
+
 DEFAULT_MODEL = LogisticRegression(max_iter=1000, class_weight='balanced')
 
 
-def add_predictions_to_datasets(dataset, model=DEFAULT_MODEL):
+def add_predictions_to_dataset(dataset_name, model=DEFAULT_MODEL):
+    dataset = SPAN_DATASETS[dataset_name]()
+
     vectorizer_kwargs = dict(lowercase=True, stop_words='english', max_features=2000)
     analyzer = CountVectorizer(**vectorizer_kwargs).build_analyzer()
     stemmer = PorterStemmer()

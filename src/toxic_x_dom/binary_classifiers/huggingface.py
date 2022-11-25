@@ -17,6 +17,7 @@
 
 import logging
 import os
+import shutil
 import random
 import sys
 import collections
@@ -25,6 +26,7 @@ from typing import Optional
 
 import datasets
 import numpy as np
+import pandas as pd
 import torch.nn
 from datasets import load_dataset, ClassLabel, load_metric
 
@@ -48,12 +50,45 @@ from transformers.utils.versions import require_version
 
 import toxic_x_dom.data
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.24.0")
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/text-classification/requirements.txt")
 
 logger = logging.getLogger(__name__)
+
+PROJECT_HOME = os.getenv('TOXIC_X_DOM_HOME')
+
+
+def add_predictions_to_dataset(dataset_name, config_key='bert', split_key='dev'):
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    model_path = os.path.join(PROJECT_HOME, f'experiments/binary_classification/outputs/{config_key}-{dataset_name}/')
+    out_dir = os.path.join(PROJECT_HOME, 'experiments/binary_classification/outputs/temp/')
+    model_args, data_args, training_args = parser.parse_dict({
+        'output_dir':           out_dir,
+        'do_train':             False,
+        'do_eval':              False,
+        'do_predict':           True,
+        'predict_split':        split_key,
+        'dataset_name':         dataset_name,
+        'model_name_or_path':   model_path,
+    })
+    results = main(model_args, data_args, training_args)
+    shutil.rmtree(out_dir)
+
+    splits = []
+    for key, split_data in results['dataset'].items():
+        split_data = split_data.to_pandas()
+        split_data['split'] = key
+        splits.append(split_data)
+    dataset = pd.concat(splits)
+    dataset.loc[dataset['split'] == split_key, 'prediction'] = results['predictions']
+
+    f1 = results['metrics']['predict_f1']
+    return dataset, f1
 
 
 @dataclass
@@ -191,18 +226,32 @@ class TrainingArguments(HfTrainingArguments):
         default=0.0, metadata={"help": "TODO"}
     )
 
+    predict_split: str = field(
+        default='test',
+        metadata={"help": "TODO"}
+    )
+
 
 class Trainer(HfTrainer):
+    args: TrainingArguments
 
-    def __init__(self, class_distribution, **kwargs):
+    def __init__(self, train_class_counts=None, **kwargs):
         super(Trainer, self).__init__(**kwargs)
-        self.train_data_class_distribution = class_distribution
-        print("Class distribution: ", class_distribution)
-        total_count = sum(class_distribution.values())
-        normalized_dist = [count / total_count for c, count in sorted(class_distribution.items(), key=lambda x: x[0])]
-        self.class_weights = [1 / (p * len(normalized_dist)) for p in normalized_dist]
-        print("Class weights:", self.class_weights)
-        self.loss_fn = torch.nn.CrossEntropyLoss(weight=torch.tensor(self.class_weights, device=self.model.device))
+
+        if self.args.balanced_loss_terms or self.args.balanced_data_sampling:
+            if train_class_counts is None:
+                raise ValueError('Need the class counts to do balancing of data sampling or loss terms.')
+
+            self.train_class_counts = train_class_counts
+            print("Class counts: ", train_class_counts)
+
+            total_count = sum(train_class_counts.values())
+            normalized_dist = [count / total_count for c, count in sorted(train_class_counts.items(), key=lambda x: x[0])]
+            self.class_weights = [1 / (p * len(normalized_dist)) for p in normalized_dist]
+            print("Class weights:", self.class_weights)
+
+        if self.args.balanced_loss_terms:
+            self.loss_fn = torch.nn.CrossEntropyLoss(weight=torch.tensor(self.class_weights, device=self.model.device))
 
     def compute_loss(self, model, inputs, return_outputs=False):
         if 'labels' in inputs:
@@ -235,29 +284,15 @@ class Trainer(HfTrainer):
                 seed = self.args.data_seed
             generator.manual_seed(seed)
 
-        seed = self.args.data_seed if self.args.data_seed is not None else self.args.seed
-
         if self.args.world_size <= 1:
             weights = [self.class_weights[int(label)] for label in self.train_dataset['toxic']]
-            length = 2 * min(self.train_data_class_distribution.values())
+            length = 2 * min(self.train_class_counts.values())
             return WeightedRandomSampler(weights, length, replacement=False, generator=generator)
         else:
             raise NotImplementedError()
 
 
-def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
-
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script, and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-    else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-
+def main(model_args, data_args, training_args):
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -362,6 +397,8 @@ def main():
         ))
         return tokenized
 
+    train_class_counts = None
+
     if training_args.do_train:
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
@@ -376,31 +413,31 @@ def main():
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on train dataset",
             )
-            train_class_dist = collections.Counter(train_dataset['label'])
+            train_class_counts = collections.Counter(train_dataset['label'])
 
         # Log a few random samples from the training set:
         for index in random.sample(range(len(train_dataset)), 3):
             logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
     if training_args.do_eval:
-        if "validation" not in raw_datasets:
-            raise ValueError("--do_eval requires a validation dataset")
-        eval_dataset = raw_datasets["validation"]
+        if "dev" not in raw_datasets:
+            raise ValueError("--do_eval requires a development dataset")
+        eval_dataset = raw_datasets["dev"]
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
-        with training_args.main_process_first(desc="validation dataset map pre-processing"):
+        with training_args.main_process_first(desc="development dataset map pre-processing"):
             eval_dataset = eval_dataset.map(
                 preprocess_function,
                 batched=True,
                 load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on validation dataset",
+                desc="Running tokenizer on development dataset",
             )
 
     if training_args.do_predict:
-        if "test" not in raw_datasets:
+        if training_args.predict_split not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
-        predict_dataset = raw_datasets["test"]
+        predict_dataset = raw_datasets[training_args.predict_split]
         if data_args.max_predict_samples is not None:
             max_predict_samples = min(len(predict_dataset), data_args.max_predict_samples)
             predict_dataset = predict_dataset.select(range(max_predict_samples))
@@ -439,7 +476,7 @@ def main():
 
     # Initialize our Trainer
     trainer = Trainer(
-        train_class_dist,
+        train_class_counts=train_class_counts,
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -449,6 +486,8 @@ def main():
         data_collator=data_collator,
         callbacks=callbacks
     )
+
+    return_values = {'dataset': raw_datasets}
 
     # Training
     if training_args.do_train:
@@ -503,6 +542,19 @@ def main():
                     item = label_list[item]
                     writer.write(f"{index}\t{item}\n")
 
+        return_values['predictions'] = predictions
+        return_values['metrics'] = metrics
+
+    return return_values
+
 
 if __name__ == "__main__":
-    main()
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+        # If we pass only one argument to the script, and it's the path to a json file,
+        # let's parse it to get our arguments.
+        _model_args, _data_args, _training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        _model_args, _data_args, _training_args = parser.parse_args_into_dataclasses()
+
+    main(_model_args, _data_args, _training_args)
