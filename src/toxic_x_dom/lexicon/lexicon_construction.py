@@ -17,7 +17,7 @@ def count_tokens(df, minimum_occurrences=0):
     whole_corpus = Counter()
     in_toxic_span = Counter()
 
-    train_split = df.loc[df['split'] == 'train'].loc[df['toxic']]
+    train_split = df[(df['split'] == 'train') & df['toxic']]
 
     for index, row in train_split.iterrows():
         toxic_tokens = row.toxic_tokens
