@@ -9,5 +9,6 @@
   "logging_steps": 500,
   "output_dir": "outputs/bert-cad/",
   "overwrite_output_dir": true,
-  "include_inputs_for_metrics": true
+  "include_inputs_for_metrics": true,
+  "num_train_epochs": 3
 }
