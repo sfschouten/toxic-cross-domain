@@ -1,10 +1,19 @@
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
 from transformers import BertPreTrainedModel, BertModel
-from torch import nn
+from torch import nn, FloatTensor, IntTensor
 import torch
 from torchcrf import CRF
+from transformers.utils import ModelOutput
 
 
-# torch.cuda.set_device(0)
+@dataclass
+class CRFOutput(ModelOutput):
+    loss: Optional[FloatTensor] = None
+    tags: IntTensor = None
+    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[torch.FloatTensor]] = None
 
 
 class BertCRF(BertPreTrainedModel):
@@ -58,34 +67,26 @@ class BertCRF(BertPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # print('labels.shape ', labels.shape)
-            # print('logits.shape ', logits.shape)
-            # print('attention_mask.shape ', attention_mask.shape)
-            # print('labels ', labels)
-            # # print('logits ', logits)
-            # print('type(attention_mask) ', type(attention_mask))
-            # print('attention_mask ', attention_mask)
-            # log_likelihood = self.crf(logits, labels, attention_mask)
-
             attention_mask = attention_mask.type(torch.bool)  # Cast into boolean tensor
-            labels[labels == -100] = 0  # Fix for "IndexError: index -100 is out of bounds for dimension 0 with size 3"
-
+            labels[labels == -100] = 0  # Prevent IndexError upon expansion into one-hot encoding.
             log_likelihood = self.crf(logits, labels, attention_mask)
-            tags = self.crf.decode(logits)
-            loss = 0 - log_likelihood
-        else:
-            tags = self.crf.decode(logits)
-        tags = torch.Tensor(tags)
+            loss = -log_likelihood
+        tags = self.crf.decode(logits)
+        tags = torch.IntTensor(tags)
 
         if not return_dict:
             output = (tags,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
 
-        return loss, tags
+        return CRFOutput(
+            loss=loss,
+            tags=tags,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions
+        )
 
 
 class BertLstmCRF(BertPreTrainedModel):
-
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
 
     def __init__(self, config):
@@ -94,10 +95,7 @@ class BertLstmCRF(BertPreTrainedModel):
 
         self.bert = BertModel(config, add_pooling_layer=False)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        # self.bilstm = nn.LSTM(config.hidden_size, (config.hidden_size) // 2, dropout=config.dropout, batch_first=True,
-        #                       bidirectional=True)
-        self.bilstm = nn.LSTM(config.hidden_size, (config.hidden_size) // 2, batch_first=True,
-                              bidirectional=True)
+        self.bilstm = nn.LSTM(config.hidden_size, config.hidden_size // 2, batch_first=True, bidirectional=True)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
         self.crf = CRF(num_tags=config.num_labels, batch_first=True)
         self.init_weights()
@@ -141,15 +139,20 @@ class BertLstmCRF(BertPreTrainedModel):
 
         loss = None
         if labels is not None:
-            labels[labels == -100] = 0  # Fix for "IndexError: index -100 is out of bounds for dimension 0 with size 3"
-            log_likelihood, tags = self.crf(logits, labels), self.crf.decode(logits)
-            loss = 0 - log_likelihood
-        else:
-            tags = self.crf.decode(logits)
-        tags = torch.Tensor(tags)
+            attention_mask = attention_mask.type(torch.bool)  # Cast into boolean tensor
+            labels[labels == -100] = 0  # Prevent IndexError upon expansion into one-hot encoding.
+            log_likelihood = self.crf(logits, labels, attention_mask)
+            loss = -log_likelihood
+        tags = self.crf.decode(logits)
+        tags = torch.IntTensor(tags)
 
         if not return_dict:
             output = (tags,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
 
-        return loss, tags
+        return CRFOutput(
+            loss=loss,
+            tags=tags,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions
+        )
