@@ -8,11 +8,17 @@ from nltk.tokenize import word_tokenize
 nltk.download('punkt')
 
 
-def count_tokens(df, non_neutral_only=False, minimum_occurrences=0):
+def count_tokens(df, minimum_occurrences=0):
+    """
+    Args:
+        df: The dataframe with the dataset.
+        minimum_occurrences: How often a word has to occur in the whole dataset to be considered for the lexicon.
+    """
     whole_corpus = Counter()
-    in_abusive = Counter()
+    in_toxic_span = Counter()
 
-    train_split = df.loc[df['split'] == 'train']
+    train_split = df[(df['split'] == 'train') & df['toxic']]
+
     for index, row in train_split.iterrows():
         toxic_tokens = row.toxic_tokens
         full_text = row.full_text
@@ -23,7 +29,7 @@ def count_tokens(df, non_neutral_only=False, minimum_occurrences=0):
         text_tokens = word_tokenize(full_text.lower())
         text_tokens = remove_punctuation(text_tokens)
 
-        whole_corpus.update(text_tokens if not non_neutral_only else toxic_tokens)
+        whole_corpus.update(text_tokens)
 
         if not row.toxic:
             continue
@@ -32,27 +38,28 @@ def count_tokens(df, non_neutral_only=False, minimum_occurrences=0):
 
         # only update in_abusive with tokens that are also in the full text
         # (sometimes the highlight begins/ends mid-word)
+        # TODO document how often this happens
         in_both = set(toxic_tokens) & set(text_tokens)
         toxic_tokens = [t for t in toxic_tokens if t in in_both]
-        in_abusive.update(toxic_tokens)
+        in_toxic_span.update(toxic_tokens)
 
-    tokens = set(in_abusive.keys()) & set(whole_corpus.keys())
+    tokens = set(in_toxic_span.keys()) & set(whole_corpus.keys())
 
     if minimum_occurrences > 0:
         too_low = set(key for key, count in whole_corpus.items() if count < minimum_occurrences)
         tokens -= too_low
 
-    return in_abusive, whole_corpus, tokens
+    return in_toxic_span, whole_corpus, tokens
 
 
-def calculate_scores(in_abusive, whole_corpus, tokens, z=0):
+def calculate_scores(in_toxic_span, whole_corpus, tokens, z=0):
     def toxic_score(token):
-        a = in_abusive[token]
+        a = in_toxic_span[token]
         n = whole_corpus[token]
         score = a / n
 
         # calculate prior probability of a token being highlighted
-        p = sum(in_abusive.values()) / sum(whole_corpus.values())
+        p = sum(in_toxic_span.values()) / sum(whole_corpus.values())
         q = 1 - p
 
         # Some tokens only appear once or twice, so prevalence among highlights
@@ -87,9 +94,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    df = SPAN_DATASETS[args.dataset]()
+    _df = SPAN_DATASETS[args.dataset]()
     _in_abusive, _whole_corpus, _tokens = count_tokens(
-        df, non_neutral_only=False, minimum_occurrences=args.min_occurrence
+        _df, minimum_occurrences=args.min_occurrence
     )
 
     scores_ = calculate_scores(_in_abusive, _whole_corpus, _tokens)
