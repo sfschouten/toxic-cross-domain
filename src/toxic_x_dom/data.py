@@ -54,9 +54,11 @@ def load_cad_data(data_path: str = CAD_TSV, remove_non_hateful_slurs=True):
     )
     cad_df = cad_df.loc[cad_df['split'].isin(['train', 'dev', 'test'])]
 
+    non_hateful_slur_str = 'Slur'
     if remove_non_hateful_slurs:
-        cad_df = cad_df[cad_df.annotation_Primary != 'Slur']
-    cad_df['toxic'] = cad_df.apply(lambda row: row.annotation_Primary not in ["Neutral", "CounterSpeech", "Slur"], axis=1)
+        cad_df = cad_df[cad_df.annotation_Primary != non_hateful_slur_str]
+    non_toxic_strs = ["Neutral", "CounterSpeech", non_hateful_slur_str]
+    cad_df['toxic'] = cad_df.apply(lambda row: row.annotation_Primary not in non_toxic_strs, axis=1)
 
     cad_df = cad_df.rename(columns={
         "meta_text": "full_text",
