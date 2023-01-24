@@ -11,3 +11,5 @@ dependencies:
   - huggingface::huggingface_hub
   - conda-forge::tqdm
   - conda-forge::python-dotenv
+  - pip:
+    - pytorch-crf

@@ -16,7 +16,7 @@
 """
 Fine-tuning the library models for token classification.
 """
-
+import importlib
 import logging
 import os
 import sys
@@ -29,6 +29,7 @@ import numpy as np
 from datasets import ClassLabel, load_dataset
 
 import transformers
+from torch import FloatTensor, IntTensor
 from transformers import (
     AutoConfig,
     AutoModelForTokenClassification,
@@ -48,6 +49,7 @@ from transformers.utils.versions import require_version
 import toxic_x_dom.data
 from toxic_x_dom.evaluation import metrics as metrics_fn
 
+#
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.24.0")
 
@@ -92,6 +94,9 @@ class ModelArguments:
         default=False,
         metadata={"help": "Will enable to load a pretrained model whose head dimensions are different."},
     )
+    custom_model_class: str = field(
+        default=None, metadata={"help": "Class to use instead of the Auto Classes to load model."}
+    )
 
 
 @dataclass
@@ -100,7 +105,8 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    task_name: Optional[str] = field(default="toxic-span-prediction", metadata={"help": "The name of the task (ner, pos...)."})
+    task_name: Optional[str] = field(default="toxic-span-prediction",
+                                     metadata={"help": "The name of the task (ner, pos...)."})
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
@@ -278,7 +284,16 @@ def main():
             use_auth_token=True if model_args.use_auth_token else None,
         )
 
-    model = AutoModelForTokenClassification.from_pretrained(
+    if model_args.custom_model_class:
+        last_period = model_args.custom_model_class.rfind('.')
+        class_name = model_args.custom_model_class[last_period+1:]
+        module_name = model_args.custom_model_class[:last_period]
+        module = importlib.import_module(module_name)
+        cls = getattr(module, class_name)
+    else:
+        cls = AutoModelForTokenClassification
+
+    model = cls.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
@@ -410,10 +425,34 @@ def main():
 
     def compute_metrics(pred):
         labels = pred.label_ids
-        logits = pred.predictions
-        predictions = logits.argmax(axis=-1)
+        predictions = pred.predictions
+
+        # if predictions are logits, argmax them first
+        if predictions.dtype.kind == 'f' and len(predictions.shape) == 3:
+            predictions = predictions.argmax(axis=-1)
 
         labelled_mask = labels != -100
+        # print ('\n')
+        # print ('pred ', pred)
+        # print('\n')
+        # print('logits ', logits)
+        # print('\n')
+        # print('labels ', labels)
+        # print('\n')
+        # print('predictions ', predictions)
+        # print('\n')
+        # print('labelled_mask ', labelled_mask)
+        # print('\n')
+        # print('labelled_mask.shape ', labelled_mask.shape)
+        # print('\n')
+        # print('labels.shape ', labels.shape)
+        # print('\n')
+        # print('logits.shape ', logits.shape)
+        # print('\n')
+        # print('labelled_mask.shape ', labelled_mask.shape)
+        # print('\n')
+        # print('predictions.shape ', predictions.shape)
+        # print('\n')
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
         label_mask = labelled_mask & ((labels == B) | (labels == I))
 
@@ -434,7 +473,7 @@ def main():
                 # use BatchEncoding.offsets to get the number of characters per token and if there should be a space
                 return np.array(list(itertools.chain.from_iterable([
                     ([] if os1 is None or os0[1] == os1[0] else [False]) + [t_toxic] * (os0[1] - os0[0])
-                    for t_toxic, os0, os1 in zip(mask, offsets, offsets[1:]+[None])
+                    for t_toxic, os0, os1 in zip(mask, offsets, offsets[1:] + [None])
                 ]))[1:])
 
             char_prediction_mask = convert_mask_to_char_level(prediction_mask[i])
