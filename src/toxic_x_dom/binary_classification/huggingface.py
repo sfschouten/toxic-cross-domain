@@ -14,7 +14,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import importlib
 import logging
 import os
 import shutil
@@ -22,6 +22,7 @@ import random
 import sys
 import collections
 from dataclasses import dataclass, field
+from inspect import signature
 from typing import Optional
 
 import datasets
@@ -31,7 +32,7 @@ import torch.nn
 from datasets import load_dataset, ClassLabel, load_metric
 
 import transformers
-from torch.utils.data import WeightedRandomSampler, RandomSampler
+from torch.utils.data import WeightedRandomSampler
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -51,6 +52,9 @@ from transformers.utils.versions import require_version
 import toxic_x_dom.data
 
 from dotenv import load_dotenv
+
+from toxic_x_dom.rationale_extraction.attribution import Attributer
+
 load_dotenv()
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -80,7 +84,7 @@ def add_predictions_to_dataset(dataset_name, config_key='bert', split_key='dev')
     shutil.rmtree(out_dir)
 
     splits = []
-    for key, split_data in results['dataset'].items():
+    for key, split_data in results['raw_datasets'].items():
         split_data = split_data.to_pandas()
         split_data['split'] = key
         splits.append(split_data)
@@ -203,6 +207,10 @@ class ModelArguments:
 @dataclass
 class TrainingArguments(HfTrainingArguments):
 
+    do_attribution: bool = field(default=False, metadata={"help": "Whether to run predictions on the test set."})
+
+    captum_class: str = field(default="captum.attr.LayerActivation", metadata={"help": "Which Captum class to use."})
+
     balanced_loss_terms: bool = field(
         default=False,
         metadata={
@@ -227,16 +235,19 @@ class TrainingArguments(HfTrainingArguments):
     )
 
     predict_split: str = field(
-        default='test',
-        metadata={"help": "TODO"}
+        default='test', metadata={"help": "TODO"}
+    )
+
+    attribution_split: str = field(
+        default='dev', metadata={"help": "TODO"}
     )
 
 
-class Trainer(HfTrainer):
+class BalancedTrainer(HfTrainer):
     args: TrainingArguments
 
     def __init__(self, train_class_counts=None, **kwargs):
-        super(Trainer, self).__init__(**kwargs)
+        super(BalancedTrainer, self).__init__(**kwargs)
 
         if self.args.balanced_loss_terms or self.args.balanced_data_sampling:
             if train_class_counts is None:
@@ -267,7 +278,7 @@ class Trainer(HfTrainer):
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if not self.args.balanced_data_sampling:
-            return super(Trainer, self)._get_train_sampler()
+            return super(BalancedTrainer, self)._get_train_sampler()
 
         if self.train_dataset is None or not has_length(self.train_dataset):
             return None
@@ -391,6 +402,7 @@ def main(model_args, data_args, training_args):
             max_length=data_args.max_seq_length,
             truncation=True,
         )
+        tokenized['char_offsets'] = [encoding.offsets for encoding in tokenized.encodings]
         tokenized['label'] = list(map(
             lambda sample_toxic:
             class_label.str2int('toxic') if sample_toxic else class_label.str2int('non-toxic'), examples['toxic']
@@ -449,6 +461,21 @@ def main(model_args, data_args, training_args):
                 desc="Running tokenizer on prediction dataset",
             )
 
+    if training_args.do_attribution:
+        if training_args.attribution_split not in raw_datasets:
+            raise ValueError("TODO")
+        attribution_dataset = raw_datasets[training_args.attribution_split]
+        if data_args.max_predict_samples is not None:
+            max_predict_samples = min(len(attribution_dataset), data_args.max_predict_samples)
+            attribution_dataset = attribution_dataset.select(range(max_predict_samples))
+        with training_args.main_process_first(desc="prediction dataset map pre-processing"):
+            attribution_dataset = attribution_dataset.map(
+                preprocess_function,
+                batched=True,
+                load_from_cache_file=not data_args.overwrite_cache,
+                desc="Running tokenizer on prediction dataset",
+            )
+
     # Get the metric function
     metric = load_metric("f1")
 
@@ -475,7 +502,7 @@ def main(model_args, data_args, training_args):
         ))
 
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = BalancedTrainer(
         train_class_counts=train_class_counts,
         model=model,
         args=training_args,
@@ -487,7 +514,7 @@ def main(model_args, data_args, training_args):
         callbacks=callbacks
     )
 
-    return_values = {'dataset': raw_datasets}
+    return_values = {'raw_datasets': raw_datasets}
 
     # Training
     if training_args.do_train:
@@ -544,6 +571,15 @@ def main(model_args, data_args, training_args):
 
         return_values['predictions'] = predictions
         return_values['metrics'] = metrics
+
+    # Attribution
+    if training_args.do_attribution:
+        logger.info('*** Input Attribution ***')
+        return_values['attribution_dataset'] = attribution_dataset
+
+        attributer = Attributer(None, training_args, model, tokenizer, data_collator)
+        results = attributer.attribute(attribution_dataset)
+        return_values['attributions'] = results.predictions
 
     return return_values
 

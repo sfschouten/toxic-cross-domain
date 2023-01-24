@@ -6,6 +6,7 @@ dependencies:
   - defaults::nltk
   - defaults::scikit-learn
   - pytorch::pytorch
+  - pytorch::captum
   - huggingface::datasets
   - huggingface::transformers
   - huggingface::huggingface_hub

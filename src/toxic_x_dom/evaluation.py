@@ -1,9 +1,12 @@
+import itertools
 import re
 from typing import Set
 
 import numpy as np
 
 from tqdm import tqdm
+
+from toxic_x_dom.utils import list_of_lists_to_numpy
 
 
 def metrics(pred: Set, label: Set):
@@ -36,6 +39,54 @@ def metrics(pred: Set, label: Set):
         f1 = 2 * p * r / (p + r)
 
     return f1, p, r, (empty_pred, empty_label, empty_both)
+
+
+def evaluate_token_level(token_prediction_mask, dataset):
+    token_char_offsets = dataset['char_offsets']
+    char_label_mask = dataset['toxic_mask']
+    toxic_mask = np.array(dataset['toxic'])
+    span_mask = list_of_lists_to_numpy(dataset['toxic_mask']).astype(np.bool).any(axis=-1)
+
+    nr_rows = len(token_prediction_mask)
+    char_idxs = np.arange(max(max(o[1] for o in offsets if o is not None) for offsets in token_char_offsets))
+    f1, p, r = np.full(nr_rows, np.nan), np.full(nr_rows, np.nan), np.full(nr_rows, np.nan)
+    for i in range(nr_rows):
+        offsets = token_char_offsets[i]
+
+        def convert_mask_to_char_level(mask):
+            # use token's character offsets to convert predictions
+            return np.array(list(itertools.chain.from_iterable([
+                [t_toxic] * (os0[1] - os0[0])   # repeat prediction assigned to token
+                + [False] * (os1[0] - os0[1])   # interject False for characters that aren't part of any token
+                for t_toxic, os0, os1 in zip(mask, offsets, offsets[1:]+[(offsets[-1][0],)])
+            ])))
+
+        char_prediction_mask = convert_mask_to_char_level(token_prediction_mask[i])
+
+        l, = char_prediction_mask.shape
+        if l > 0:
+            pred_chars_offsets = set(char_idxs[:l][char_prediction_mask])
+            label_chars_offsets = set(char_idxs[:l][char_label_mask[i][:l]])
+        else:
+            pred_chars_offsets = label_chars_offsets = set()
+        _f1, _p, _r, _ = metrics(pred_chars_offsets, label_chars_offsets)
+        f1[i] = _f1
+        p[i] = _p
+        r[i] = _r
+    return {
+        'F1 (micro)': np.nanmean(f1),
+        'Precision (micro)': np.nanmean(p),
+        'Recall (micro)': np.nanmean(r),
+        'F1 (toxic)': np.nanmean(f1[toxic_mask]),
+        'Precision (toxic)': np.nanmean(p[toxic_mask]),
+        'Recall (toxic)': np.nanmean(r[toxic_mask]),
+        'F1 (toxic-no_span)': np.nanmean(f1[toxic_mask & ~span_mask]),
+        'Precision (toxic-no_span)': np.nanmean(p[toxic_mask & ~span_mask]),
+        'Recall (toxic-no_span)': np.nanmean(r[toxic_mask & ~span_mask]),
+        'F1 (non-toxic)': np.nanmean(f1[~toxic_mask]),
+        'Precision (non-toxic)': np.nanmean(p[~toxic_mask]),
+        'Recall (non-toxic)': np.nanmean(r[~toxic_mask]),
+    }
 
 
 def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True, propagate_binary_predictions=True):
@@ -74,15 +125,18 @@ def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True,
         split.at[index, '% Predicted'] = len(pred) / len(full_text) if len(full_text) > 0 else float('nan')
 
     results = {
-        'Precision (toxic)': split.loc[split['toxic'], 'Precision'].mean(),
-        'Precision (non-toxic)': split.loc[~split['toxic'], 'Precision'].mean(),
+        'F1 (micro)': split['F1'].mean(),
         'Precision (micro)': split['Precision'].mean(),
-        'Recall (toxic)': split.loc[split['toxic'], 'Recall'].mean(),
-        'Recall (non-toxic)': split.loc[~split['toxic'], 'Recall'].mean(),
         'Recall (micro)': split['Recall'].mean(),
         'F1 (toxic)': split.loc[split['toxic'], 'F1'].mean(),
+        'Precision (toxic)': split.loc[split['toxic'], 'Precision'].mean(),
+        'Recall (toxic)': split.loc[split['toxic'], 'Recall'].mean(),
+        'F1 (toxic-no_span)': split.loc[split['toxic'] & ~split['toxic_mask'].any(), 'F1'].mean(),
+        'Precision (toxic-no_span)': split.loc[split['toxic'] & ~split['toxic_mask'].any(), 'Precision'].mean(),
+        'Recall (toxic-no_span)': split.loc[split['toxic'] & ~split['toxic_mask'].any(), 'Recall'].mean(),
         'F1 (non-toxic)': split.loc[~split['toxic'], 'F1'].mean(),
-        'F1 (micro)': split['F1'].mean(),
+        'Precision (non-toxic)': split.loc[~split['toxic'], 'Precision'].mean(),
+        'Recall (non-toxic)': split.loc[~split['toxic'], 'Recall'].mean(),
         'non-toxic accuracy': nr_empty_both / (nr_empty_label + nr_empty_both),
         'non-toxic %-predicted': split.loc[~split['toxic'], '% Predicted'].mean(),
         'nr_empty_pred': nr_empty_pred,
