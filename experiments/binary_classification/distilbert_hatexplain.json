@@ -1,0 +1,17 @@
+{
+  "model_name_or_path": "distilbert-base-cased",
+  "dataset_name": "hatexplain",
+  "do_train": true,
+  "per_device_train_batch_size": 32,
+  "gradient_accumulation_steps": 1,
+  "max_steps": 5000,
+  "early_stopping_patience": 5,
+  "do_eval": true,
+  "evaluation_strategy": "steps",
+  "logging_steps": 250,
+  "output_dir": "outputs/distilbert-hatexplain/",
+  "overwrite_output_dir": true,
+  "load_best_model_at_end": true,
+  "balanced_data_sampling": false,
+  "balanced_loss_terms": true 
+}

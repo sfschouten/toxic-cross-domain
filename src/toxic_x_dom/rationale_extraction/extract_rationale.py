@@ -1,16 +1,22 @@
 import os
 import shutil
 import sys
+import uuid
 from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
+import pandas as pd
+import torch
 from dotenv import load_dotenv
 from transformers import HfArgumentParser
 
 from toxic_x_dom.binary_classification.huggingface import main as binary_classification, ModelArguments, \
     DataTrainingArguments, TrainingArguments
 from toxic_x_dom.evaluation import evaluate_token_level
+
+from toxic_x_dom.data import SPAN_DATASETS
+from toxic_x_dom.results_db import open_db
 
 load_dotenv()
 
@@ -26,9 +32,10 @@ def perform_attribution(model_args, data_args, training_args):
     training_args.output_dir = out_dir
     training_args.do_train = False
     training_args.do_eval = False
-    training_args.do_predict = False
+    training_args.do_predict = True
     training_args.do_attribution = True
     training_args.include_inputs_for_metrics = True
+    training_args.predict_split = training_args.attribution_split
 
     results = binary_classification(model_args, data_args, training_args)
     shutil.rmtree(out_dir)
@@ -45,11 +52,17 @@ def perform_attribution(model_args, data_args, training_args):
     split = results['attribution_dataset']
     split = split.add_column('attributions', attribution_list)
 
+    if 'predictions' in results:
+        predictions_list = list(results['predictions'])
+        split = split.add_column('toxic_prediction', predictions_list)
+
     return split
 
 
 @dataclass
 class RationaleExtractionArguments:
+    results_file: str = 'attribution_results.csv'
+
     captum_classes: List[str] = field(
         default_factory=lambda: [
             'captum.attr.DeepLift',
@@ -59,12 +72,13 @@ class RationaleExtractionArguments:
     )
 
     scale_attribution_scores: List[bool] = field(
-        default_factory=lambda: [True, False],
-        metadata={"help":  ""}
+        default_factory=lambda: [True, False], metadata={"help":  ""}
     )
     cumulative_scoring: List[bool] = field(
-        default_factory=lambda: [True, False],
-        metadata={"help": ""}
+        default_factory=lambda: [True, False], metadata={"help": ""}
+    )
+    propagate_binary_predictions: List[bool] = field(
+        default_factory=lambda: [True, False], metadata={"help": ""}
     )
 
     min_threshold: float = 0.0
@@ -74,33 +88,72 @@ class RationaleExtractionArguments:
 
 def search_rationale_extraction(attr_args, model_args, data_args, training_args):
     threshold_space = np.linspace(attr_args.min_threshold, attr_args.max_threshold, attr_args.steps_threshold)
+    RESULTS_COLUMNS = [
+        'F1 (micro)', 'Precision (micro)', 'Recall (micro)', 'F1 (toxic)', 'Precision (toxic)', 'Recall (toxic)',
+        'F1 (toxic-no_span)', 'Precision (toxic-no_span)', 'Recall (toxic-no_span)', 'F1 (non-toxic)',
+        'Precision (non-toxic)', 'Recall (non-toxic)'
+    ]
 
-    for captum_class in attr_args.captum_classes:
+    results = []
+    for eval_dataset in set(SPAN_DATASETS.keys()) - {'cad', 'semeval'}:
+        data_args.dataset_name = eval_dataset
 
-        training_args.captum_class = captum_class
-        attributed_dataset = perform_attribution(model_args, data_args, training_args)
+        # TODO optimize by doing the prediction here instead of repeating for each attribution method
 
-        for scale_attribution_scores in attr_args.scale_attribution_scores:
-            for cumulative_scoring in attr_args.cumulative_scoring:
-                for threshold in threshold_space:
+        for captum_class in attr_args.captum_classes:
+            training_args.captum_class = captum_class
+            method_name = captum_class.split('.')[-1]
 
-                    if scale_attribution_scores:
-                        pass
+            attributed_dataset = perform_attribution(model_args, data_args, training_args)
 
-                    if cumulative_scoring:
-                        pass
+            for scale_attribution_scores in attr_args.scale_attribution_scores:
+                for cumulative_scoring in attr_args.cumulative_scoring:
+                    for propagate in attr_args.propagate_binary_predictions:
+                        for threshold in threshold_space:
 
-                    def add_predictions(example):
-                        example['pred_token_toxic_mask'] = [a > threshold for a in example['attributions']]
-                        return example
-                    attributed_dataset = attributed_dataset.map(add_predictions)
+                            if scale_attribution_scores:
+                                pass
 
-                    results = evaluate_token_level(
-                        attributed_dataset['pred_token_toxic_mask'],
-                        attributed_dataset,
-                    )
-                    print(results)
-                    pass
+                            if cumulative_scoring:
+                                # TODO ...
+                                pass
+
+                            def add_predictions(example):
+                                example['pred_token_toxic_mask'] = [a > threshold for a in example['attributions']]
+                                return example
+                            attributed_dataset = attributed_dataset.map(add_predictions)
+
+                            results_dict = evaluate_token_level(
+                                attributed_dataset['pred_token_toxic_mask'], attributed_dataset,
+                                propagate_binary_predictions=propagate
+                            )
+
+                            results.append([eval_dataset, method_name, scale_attribution_scores, cumulative_scoring,
+                                            propagate, threshold] + [results_dict[key] for key in RESULTS_COLUMNS])
+
+    results_df = pd.DataFrame(
+        results,
+        columns=['eval_dataset', 'attribution_method', 'scale_scores', 'cumulative_scoring', 'propagate_binary',
+                 'threshold', 'f1_micro', 'precision_micro', 'recall_micro', 'f1_toxic', 'precision_toxic',
+                 'recall_toxic', 'f1_toxic_no_span', 'precision_toxic_no_span', 'recall_toxic_no_span', 'f1_non_toxic',
+                 'precision_non_toxic', 'recall_non_toxic']
+    )
+    attribution_columns = ['attribution_method', 'scale_scores', 'cumulative_scoring', 'threshold']
+    attribution_df = results_df[attribution_columns]
+    results_df = results_df.drop(columns=attribution_columns)
+    results_df['id'] = [uuid.uuid4() for _ in range(len(results_df.index))]
+
+    train_dataset_col = [model_args.model_name_or_path.split('-')[-1].replace('/', '')] * len(results_df.index)
+    results_df['train_dataset'] = train_dataset_col
+    results_df['filling_chars'] = -1
+
+    db = open_db()
+    columns = ','.join(results_df.columns)
+    db.execute(f'INSERT INTO evaluation({columns}) SELECT {columns} FROM results_df;')
+
+    attribution_df.insert(0, column='id', value=results_df['id'])
+    db.execute('INSERT INTO rationale_evaluation SELECT * FROM attribution_df;')
+    db.close()
 
 
 if __name__ == "__main__":

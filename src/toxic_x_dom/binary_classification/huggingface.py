@@ -14,7 +14,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import importlib
 import logging
 import os
 import shutil
@@ -22,7 +21,6 @@ import random
 import sys
 import collections
 from dataclasses import dataclass, field
-from inspect import signature
 from typing import Optional
 
 import datasets
@@ -46,7 +44,7 @@ from transformers import (
     set_seed, EarlyStoppingCallback,
 )
 from transformers.trainer_utils import get_last_checkpoint, has_length
-from transformers.utils import check_min_version, send_example_telemetry
+from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 import toxic_x_dom.data
@@ -116,6 +114,10 @@ class DataTrainingArguments:
                 "than this will be truncated, sequences shorter will be padded."
             )
         },
+    )
+    include_nontoxic_samples: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether or not to filter out non-toxic samples from the data."}
     )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached preprocessed datasets or not."}
@@ -352,6 +354,11 @@ def main(model_args, data_args, training_args):
         dataset_name=data_args.dataset_name
     )
 
+    if not data_args.include_nontoxic_samples:
+        raw_datasets = raw_datasets.filter(lambda sample: sample['toxic'])
+        if training_args.do_train:
+            raise ValueError("Don't train on data with only one class...")
+
     class_label = ClassLabel(names=['non-toxic', 'toxic'])
     label_list = class_label.names
 
@@ -474,6 +481,12 @@ def main(model_args, data_args, training_args):
                 batched=True,
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on prediction dataset",
+            )
+            nr_max_length = sum(1 for x in attribution_dataset['input_ids']
+                                if len(x) == model.config.max_position_embeddings)
+            logger.warning(
+                f"Number of max-length samples: {nr_max_length} out of {len(attribution_dataset)}. "
+                f"These won't get attribution to characters that are truncated, leading to suboptimal performance."
             )
 
     # Get the metric function

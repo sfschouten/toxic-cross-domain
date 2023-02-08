@@ -41,34 +41,44 @@ def metrics(pred: Set, label: Set):
     return f1, p, r, (empty_pred, empty_label, empty_both)
 
 
-def evaluate_token_level(token_prediction_mask, dataset):
+def evaluate_token_level(token_prediction_mask, dataset, propagate_binary_predictions=False):
     token_char_offsets = dataset['char_offsets']
     char_label_mask = dataset['toxic_mask']
     toxic_mask = np.array(dataset['toxic'])
     span_mask = list_of_lists_to_numpy(dataset['toxic_mask']).astype(np.bool).any(axis=-1)
 
+    if propagate_binary_predictions and 'toxic_prediction' not in dataset.features:
+        raise ValueError("Toxicity predictions are required if they are to be propagated.")
+
     nr_rows = len(token_prediction_mask)
-    char_idxs = np.arange(max(max(o[1] for o in offsets if o is not None) for offsets in token_char_offsets))
+    char_idxs = np.arange(max(len(ch_mask) for ch_mask in char_label_mask))
     f1, p, r = np.full(nr_rows, np.nan), np.full(nr_rows, np.nan), np.full(nr_rows, np.nan)
     for i in range(nr_rows):
-        offsets = token_char_offsets[i]
+        l = len(char_label_mask[i])
+        label_chars_offsets = set(char_idxs[:l][char_label_mask[i]])
+        pred_chars_offsets = set()
 
-        def convert_mask_to_char_level(mask):
-            # use token's character offsets to convert predictions
-            return np.array(list(itertools.chain.from_iterable([
-                [t_toxic] * (os0[1] - os0[0])   # repeat prediction assigned to token
-                + [False] * (os1[0] - os0[1])   # interject False for characters that aren't part of any token
-                for t_toxic, os0, os1 in zip(mask, offsets, offsets[1:]+[(offsets[-1][0],)])
-            ])))
+        if (not propagate_binary_predictions or dataset['toxic_prediction'][i]) and l > 0:
+            offsets = token_char_offsets[i]
 
-        char_prediction_mask = convert_mask_to_char_level(token_prediction_mask[i])
+            def convert_mask_to_char_level(mask):
+                # use token's character offsets to convert predictions
+                m_offsets = [
+                    (m, os0, os1) for (m, os0, os1) in zip(mask, offsets, offsets[1:]+[(offsets[-1][0],)])
+                    if os0 != [0, 0]            # remove special tokens and their offsets
+                ]
+                result = list(itertools.chain.from_iterable([
+                    [t_toxic] * (os0[1] - os0[0])   # repeat prediction assigned to token
+                    + [False] * (os1[0] - os0[1])   # interject False for characters that aren't part of any token
+                    for t_toxic, os0, os1 in m_offsets
+                ]))
+                result = [False] * m_offsets[0][1][0] + result         # prepend False in case 1st token is not 1st char
+                result = result + [False] * (l - m_offsets[-1][1][1])  # append False in case last token is not last char
+                return np.array(result)
 
-        l, = char_prediction_mask.shape
-        if l > 0:
+            char_prediction_mask = convert_mask_to_char_level(token_prediction_mask[i])
             pred_chars_offsets = set(char_idxs[:l][char_prediction_mask])
-            label_chars_offsets = set(char_idxs[:l][char_label_mask[i][:l]])
-        else:
-            pred_chars_offsets = label_chars_offsets = set()
+
         _f1, _p, _r, _ = metrics(pred_chars_offsets, label_chars_offsets)
         f1[i] = _f1
         p[i] = _p

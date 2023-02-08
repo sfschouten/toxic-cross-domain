@@ -47,7 +47,6 @@ from transformers.utils.versions import require_version
 
 import toxic_x_dom.data
 from toxic_x_dom.evaluation import evaluate_token_level
-from toxic_x_dom.utils import list_of_lists_to_numpy
 
 #
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.

@@ -8,7 +8,7 @@ import torch.nn as nn
 import captum
 from torch.nn import CrossEntropyLoss
 
-from transformers import Trainer, DataCollator, PreTrainedTokenizerBase, PreTrainedModel
+from transformers import Trainer
 
 
 class AttributionTrainer(Trainer):
@@ -180,7 +180,7 @@ class IntegratedGradients(FeatureLevelMethodWrap):
     ]
 
     def _method_specific_args(self, raw_inputs):
-        return [], {'internal_batch_size': 25}
+        return [], {'internal_batch_size': 10}           # TODO make this a configuration parameter
     #
     # def _method_specific_args(self, raw_inputs):
     #     device = raw_inputs['attention_mask'].device
