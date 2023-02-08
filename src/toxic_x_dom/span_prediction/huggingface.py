@@ -22,7 +22,6 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
-import itertools
 
 import datasets
 import numpy as np
@@ -43,11 +42,11 @@ from transformers import (
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
-from transformers.utils import check_min_version, send_example_telemetry
+from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 import toxic_x_dom.data
-from toxic_x_dom.evaluation import metrics as metrics_fn
+from toxic_x_dom.evaluation import evaluate_token_level
 
 #
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -56,6 +55,51 @@ check_min_version("4.24.0")
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/token-classification/requirements.txt")
 
 logger = logging.getLogger(__name__)
+
+
+def process_dataset_for_span_detection(dataset, tokenizer, class_label, data_args, padding, train_args):
+    # Tokenize all texts and align the labels with them.
+    I, O, B = class_label.str2int(['I', 'O', 'B'])
+
+    def add_iob_labels(sample, batch_encoding):
+        mask = sample['toxic_mask']
+
+        lbls = []
+        for token_idx, input_id in enumerate(batch_encoding['input_ids']):
+            char_span = batch_encoding.token_to_chars(0, token_index=token_idx)
+            if char_span is None:  # special token
+                lbls.append(-100)
+                continue
+            token_toxicity = sum(mask[char_span.start:char_span.end]) / float(char_span.end - char_span.start)
+            token_toxic = token_toxicity > 0.5
+            if token_toxic:
+                if token_idx == 0 or lbls[token_idx - 1] not in {B, I}:
+                    lbls.append(B)
+                else:
+                    lbls.append(I)
+            else:
+                lbls.append(O)
+        batch_encoding['labels'] = lbls
+        batch_encoding['char_offsets'] = batch_encoding.encodings[0].offsets
+        return batch_encoding
+
+    def tokenize_and_align_labels(sample):
+        return add_iob_labels(
+            sample,
+            tokenizer(
+                sample['full_text'],
+                padding=padding,
+                truncation=True,
+                max_length=data_args.max_seq_length,
+            )
+        )
+    with train_args.main_process_first(desc="train dataset map pre-processing"):
+        return dataset.map(
+            tokenize_and_align_labels,
+            num_proc=data_args.preprocessing_num_workers,
+            load_from_cache_file=not data_args.overwrite_cache,
+            desc="Running tokenizer on development dataset"
+        )
 
 
 @dataclass
@@ -250,6 +294,7 @@ def main():
     class_label = ClassLabel(names=['I', 'O', 'B'])
     label_list = class_label.names
     num_labels = 3
+    I, O, B = class_label.str2int(['I', 'O', 'B'])
 
     # Load pretrained model and tokenizer
     #
@@ -340,41 +385,6 @@ def main():
     # Padding strategy
     padding = "max_length" if data_args.pad_to_max_length else False
 
-    # Tokenize all texts and align the labels with them.
-    I, O, B = class_label.str2int(['I', 'O', 'B'])
-
-    def add_iob_labels(sample, batch_encoding):
-        mask = sample['toxic_mask']
-
-        lbls = []
-        for token_idx, input_id in enumerate(batch_encoding['input_ids']):
-            char_span = batch_encoding.token_to_chars(0, token_index=token_idx)
-            if char_span is None:  # special token
-                lbls.append(-100)
-                continue
-            token_toxicity = sum(mask[char_span.start:char_span.end]) / float(char_span.end - char_span.start)
-            token_toxic = token_toxicity > 0.5
-            if token_toxic:
-                if token_idx == 0 or lbls[token_idx - 1] not in {B, I}:
-                    lbls.append(B)
-                else:
-                    lbls.append(I)
-            else:
-                lbls.append(O)
-        batch_encoding['labels'] = lbls
-        return batch_encoding
-
-    def tokenize_and_align_labels(sample):
-        return add_iob_labels(
-            sample,
-            tokenizer(
-                sample['full_text'],
-                padding=padding,
-                truncation=True,
-                max_length=data_args.max_seq_length,
-            )
-        )
-
     if training_args.do_train:
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
@@ -382,13 +392,8 @@ def main():
         if data_args.max_train_samples is not None:
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
             train_dataset = train_dataset.select(range(max_train_samples))
-        with training_args.main_process_first(desc="train dataset map pre-processing"):
-            train_dataset = train_dataset.map(
-                tokenize_and_align_labels,
-                num_proc=data_args.preprocessing_num_workers,
-                load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on train dataset",
-            )
+        train_dataset = process_dataset_for_span_detection(
+            train_dataset, tokenizer, class_label, data_args, padding, training_args)
 
     if training_args.do_eval:
         if "dev" not in raw_datasets:
@@ -397,13 +402,8 @@ def main():
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
-        with training_args.main_process_first(desc="development dataset map pre-processing"):
-            eval_dataset = eval_dataset.map(
-                tokenize_and_align_labels,
-                num_proc=data_args.preprocessing_num_workers,
-                load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on development dataset",
-            )
+        eval_dataset = process_dataset_for_span_detection(
+            eval_dataset, tokenizer, class_label, data_args, padding, training_args)
 
     if training_args.do_predict:
         if "test" not in raw_datasets:
@@ -412,13 +412,8 @@ def main():
         if data_args.max_predict_samples is not None:
             max_predict_samples = min(len(predict_dataset), data_args.max_predict_samples)
             predict_dataset = predict_dataset.select(range(max_predict_samples))
-        with training_args.main_process_first(desc="prediction dataset map pre-processing"):
-            predict_dataset = predict_dataset.map(
-                tokenize_and_align_labels,
-                num_proc=data_args.preprocessing_num_workers,
-                load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on prediction dataset",
-            )
+        predict_dataset = process_dataset_for_span_detection(
+            predict_dataset, tokenizer, class_label, data_args, padding, training_args)
 
     # Data collator
     data_collator = DataCollatorForTokenClassification(tokenizer, pad_to_multiple_of=8 if training_args.fp16 else None)
@@ -432,74 +427,9 @@ def main():
             predictions = predictions.argmax(axis=-1)
 
         labelled_mask = labels != -100
-        # print ('\n')
-        # print ('pred ', pred)
-        # print('\n')
-        # print('logits ', logits)
-        # print('\n')
-        # print('labels ', labels)
-        # print('\n')
-        # print('predictions ', predictions)
-        # print('\n')
-        # print('labelled_mask ', labelled_mask)
-        # print('\n')
-        # print('labelled_mask.shape ', labelled_mask.shape)
-        # print('\n')
-        # print('labels.shape ', labels.shape)
-        # print('\n')
-        # print('logits.shape ', logits.shape)
-        # print('\n')
-        # print('labelled_mask.shape ', labelled_mask.shape)
-        # print('\n')
-        # print('predictions.shape ', predictions.shape)
-        # print('\n')
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
-        label_mask = labelled_mask & ((labels == B) | (labels == I))
 
-        span_mask = label_mask.any(axis=-1)
-
-        # decode and re-encode for easy token-to-character conversion (using BatchEncoding)
-        inputs = [[t for t in row if t != -100] for row in pred.inputs]
-        decoded = tokenizer.batch_decode(inputs, skip_special_tokens=True)
-        re_encoded = tokenizer(decoded)
-
-        nr_rows = labels.shape[0]
-        char_idxs = np.arange(max(len(sample) for sample in decoded))
-        f1, p, r = np.full(nr_rows, np.nan), np.full(nr_rows, np.nan), np.full(nr_rows, np.nan)
-        for i in range(nr_rows):
-            offsets = re_encoded[i].offsets
-
-            def convert_mask_to_char_level(mask):
-                # use BatchEncoding.offsets to get the number of characters per token and if there should be a space
-                return np.array(list(itertools.chain.from_iterable([
-                    ([] if os1 is None or os0[1] == os1[0] else [False]) + [t_toxic] * (os0[1] - os0[0])
-                    for t_toxic, os0, os1 in zip(mask, offsets, offsets[1:] + [None])
-                ]))[1:])
-
-            char_prediction_mask = convert_mask_to_char_level(prediction_mask[i])
-            char_label_mask = convert_mask_to_char_level(label_mask[i])
-
-            l, = char_prediction_mask.shape
-            if l > 0:
-                pred_chars = set(char_idxs[:l][char_prediction_mask])
-                label_chars = set(char_idxs[:l][char_label_mask])
-            else:
-                pred_chars = label_chars = set()
-            _f1, _p, _r, _ = metrics_fn(pred_chars, label_chars)
-            f1[i] = _f1
-            p[i] = _p
-            r[i] = _r
-        return {
-            'F1 (micro)': np.nanmean(f1),
-            'Precision (micro)': np.nanmean(p),
-            'Recall (micro)': np.nanmean(r),
-            'F1 (span)': np.nanmean(f1[span_mask]),
-            'Precision (span)': np.nanmean(p[span_mask]),
-            'Recall (span)': np.nanmean(r[span_mask]),
-            'F1 (no-span)': np.nanmean(f1[~span_mask]),
-            'Precision (no-span)': np.nanmean(p[~span_mask]),
-            'Recall (no-span)': np.nanmean(r[~span_mask]),
-        }
+        return evaluate_token_level(prediction_mask, eval_dataset)
 
     # Initialize our Trainer
     trainer = Trainer(

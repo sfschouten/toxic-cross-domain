@@ -14,7 +14,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import logging
 import os
 import shutil
@@ -31,7 +30,7 @@ import torch.nn
 from datasets import load_dataset, ClassLabel, load_metric
 
 import transformers
-from torch.utils.data import WeightedRandomSampler, RandomSampler
+from torch.utils.data import WeightedRandomSampler
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -45,12 +44,15 @@ from transformers import (
     set_seed, EarlyStoppingCallback,
 )
 from transformers.trainer_utils import get_last_checkpoint, has_length
-from transformers.utils import check_min_version, send_example_telemetry
+from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 import toxic_x_dom.data
 
 from dotenv import load_dotenv
+
+from toxic_x_dom.rationale_extraction.attribution import Attributer
+
 load_dotenv()
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
@@ -80,7 +82,7 @@ def add_predictions_to_dataset(dataset_name, config_key='bert', split_key='dev')
     shutil.rmtree(out_dir)
 
     splits = []
-    for key, split_data in results['dataset'].items():
+    for key, split_data in results['raw_datasets'].items():
         split_data = split_data.to_pandas()
         split_data['split'] = key
         splits.append(split_data)
@@ -112,6 +114,10 @@ class DataTrainingArguments:
                 "than this will be truncated, sequences shorter will be padded."
             )
         },
+    )
+    include_nontoxic_samples: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether or not to filter out non-toxic samples from the data."}
     )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached preprocessed datasets or not."}
@@ -203,6 +209,10 @@ class ModelArguments:
 @dataclass
 class TrainingArguments(HfTrainingArguments):
 
+    do_attribution: bool = field(default=False, metadata={"help": "Whether to run predictions on the test set."})
+
+    captum_class: str = field(default="captum.attr.LayerActivation", metadata={"help": "Which Captum class to use."})
+
     balanced_loss_terms: bool = field(
         default=False,
         metadata={
@@ -227,16 +237,19 @@ class TrainingArguments(HfTrainingArguments):
     )
 
     predict_split: str = field(
-        default='test',
-        metadata={"help": "TODO"}
+        default='test', metadata={"help": "TODO"}
+    )
+
+    attribution_split: str = field(
+        default='dev', metadata={"help": "TODO"}
     )
 
 
-class Trainer(HfTrainer):
+class BalancedTrainer(HfTrainer):
     args: TrainingArguments
 
     def __init__(self, train_class_counts=None, **kwargs):
-        super(Trainer, self).__init__(**kwargs)
+        super(BalancedTrainer, self).__init__(**kwargs)
 
         if self.args.balanced_loss_terms or self.args.balanced_data_sampling:
             if train_class_counts is None:
@@ -267,7 +280,7 @@ class Trainer(HfTrainer):
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if not self.args.balanced_data_sampling:
-            return super(Trainer, self)._get_train_sampler()
+            return super(BalancedTrainer, self)._get_train_sampler()
 
         if self.train_dataset is None or not has_length(self.train_dataset):
             return None
@@ -341,6 +354,11 @@ def main(model_args, data_args, training_args):
         dataset_name=data_args.dataset_name
     )
 
+    if not data_args.include_nontoxic_samples:
+        raw_datasets = raw_datasets.filter(lambda sample: sample['toxic'])
+        if training_args.do_train:
+            raise ValueError("Don't train on data with only one class...")
+
     class_label = ClassLabel(names=['non-toxic', 'toxic'])
     label_list = class_label.names
 
@@ -391,6 +409,7 @@ def main(model_args, data_args, training_args):
             max_length=data_args.max_seq_length,
             truncation=True,
         )
+        tokenized['char_offsets'] = [encoding.offsets for encoding in tokenized.encodings]
         tokenized['label'] = list(map(
             lambda sample_toxic:
             class_label.str2int('toxic') if sample_toxic else class_label.str2int('non-toxic'), examples['toxic']
@@ -449,6 +468,27 @@ def main(model_args, data_args, training_args):
                 desc="Running tokenizer on prediction dataset",
             )
 
+    if training_args.do_attribution:
+        if training_args.attribution_split not in raw_datasets:
+            raise ValueError("TODO")
+        attribution_dataset = raw_datasets[training_args.attribution_split]
+        if data_args.max_predict_samples is not None:
+            max_predict_samples = min(len(attribution_dataset), data_args.max_predict_samples)
+            attribution_dataset = attribution_dataset.select(range(max_predict_samples))
+        with training_args.main_process_first(desc="prediction dataset map pre-processing"):
+            attribution_dataset = attribution_dataset.map(
+                preprocess_function,
+                batched=True,
+                load_from_cache_file=not data_args.overwrite_cache,
+                desc="Running tokenizer on prediction dataset",
+            )
+            nr_max_length = sum(1 for x in attribution_dataset['input_ids']
+                                if len(x) == model.config.max_position_embeddings)
+            logger.warning(
+                f"Number of max-length samples: {nr_max_length} out of {len(attribution_dataset)}. "
+                f"These won't get attribution to characters that are truncated, leading to suboptimal performance."
+            )
+
     # Get the metric function
     metric = load_metric("f1")
 
@@ -475,7 +515,7 @@ def main(model_args, data_args, training_args):
         ))
 
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = BalancedTrainer(
         train_class_counts=train_class_counts,
         model=model,
         args=training_args,
@@ -487,7 +527,7 @@ def main(model_args, data_args, training_args):
         callbacks=callbacks
     )
 
-    return_values = {'dataset': raw_datasets}
+    return_values = {'raw_datasets': raw_datasets}
 
     # Training
     if training_args.do_train:
@@ -544,6 +584,15 @@ def main(model_args, data_args, training_args):
 
         return_values['predictions'] = predictions
         return_values['metrics'] = metrics
+
+    # Attribution
+    if training_args.do_attribution:
+        logger.info('*** Input Attribution ***')
+        return_values['attribution_dataset'] = attribution_dataset
+
+        attributer = Attributer(None, training_args, model, tokenizer, data_collator)
+        results = attributer.attribute(attribution_dataset)
+        return_values['attributions'] = results.predictions
 
     return return_values
 

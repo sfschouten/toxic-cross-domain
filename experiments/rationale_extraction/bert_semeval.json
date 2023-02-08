@@ -1,0 +1,21 @@
+{
+  "results_file": "outputs/bert_semeval.csv",
+  "output_dir": "outputs/bert-semeval/",
+  "model_name_or_path": "../binary_classification/outputs/bert-semeval/",
+  "dataset_name": "semeval",
+  "do_attribution": true,
+  "evaluation_strategy": "steps",
+  "overwrite_output_dir": true,
+  "per_device_eval_batch_size": 1,
+  "captum_classes": [
+    "toxic_x_dom.rationale_extraction.attribution.SaliencyAbs",
+    "toxic_x_dom.rationale_extraction.attribution.DeepLift",
+    "toxic_x_dom.rationale_extraction.attribution.IntegratedGradients",
+    "toxic_x_dom.rationale_extraction.attribution.Lime"
+  ],
+  "scale_attribution_scores": [false],
+  "cumulative_scoring": [false],
+  "steps_threshold": 22,
+  "min_threshold": -0.05,
+  "max_threshold": 0.5
+}
