@@ -1,5 +1,6 @@
 import itertools
 import re
+from enum import IntFlag
 from typing import Set
 
 import numpy as np
@@ -9,27 +10,34 @@ from tqdm import tqdm
 from toxic_x_dom.utils import list_of_lists_to_numpy
 
 
+class MetricEmptySetResult(IntFlag):
+    PRED = 2
+    LABEL = 1
+    NONE = 0
+    BOTH = PRED | LABEL
+
+
 def metrics(pred: Set, label: Set):
     correct = pred & label
-    empty_label = empty_pred = empty_both = 0
+    empty_result = MetricEmptySetResult.NONE
 
     if len(pred) == 0 and len(label) > 0:
         # only prediction is empty
         p = float('nan')        # precision undefined
         r = 0                   # = len(correct) / len(label)
         f1 = 0                  # prediction was empty, label was not, so count as 0
-        empty_pred = 1
+        empty_result = MetricEmptySetResult.PRED
     elif len(label) == 0 and len(pred) > 0:
         # only label is empty
         p = 0                   # = len(correct) / len(pred)
         r = float('nan')        # recall undefined (nothing to recall), not counted in average
         f1 = 0                  # label was empty, prediction was not, so count as 0
-        empty_label = 1
+        empty_result = MetricEmptySetResult.LABEL
     elif len(label) == 0 and len(pred) == 0:
         # both are empty
         p = r = float('nan')    # precision and recall are undefined
         f1 = 1                  # correctly predicted no toxic language, so count as 1
-        empty_both = 1
+        empty_result = MetricEmptySetResult.BOTH
     elif len(correct) == 0:
         # only intersection is empty
         p = r = f1 = 0          # complete mismatch
@@ -38,10 +46,45 @@ def metrics(pred: Set, label: Set):
         r = len(correct) / len(label)
         f1 = 2 * p * r / (p + r)
 
-    return f1, p, r, (empty_pred, empty_label, empty_both)
+    return f1, p, r, empty_result
 
 
-def evaluate_token_level(token_prediction_mask, dataset, propagate_binary_predictions=False):
+def _fill_empty_spaces(prediction, max_nr_characters=1):
+    sorted_ = sorted(prediction)
+    to_add = [set(range(c1+1, c2)) for c1, c2 in zip(sorted_[:-1], sorted_[1:]) if c2 - (c1+1) <= max_nr_characters]
+    prediction |= set(itertools.chain.from_iterable(to_add))
+    return prediction
+
+
+def _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted):
+    """
+
+    """
+    return {
+        'f1_micro':                 np.nanmean(f1),
+        'precision_micro':          np.nanmean(p),
+        'recall_micro':             np.nanmean(r),
+        'f1_toxic':                 np.nanmean(f1[toxic_mask]),
+        'precision_toxic':          np.nanmean(p[toxic_mask]),
+        'recall_toxic':             np.nanmean(r[toxic_mask]),
+        'f1_toxic_no_span':         np.nanmean(f1[toxic_mask & ~span_mask]),
+        'precision_toxic_no_span':  np.nanmean(p[toxic_mask & ~span_mask]),
+        'recall_toxic_no_span':     np.nanmean(r[toxic_mask & ~span_mask]),
+        'f1_non_toxic':             np.nanmean(f1[~toxic_mask]),
+        'precision_non_toxic':      np.nanmean(p[~toxic_mask]),
+        'recall_non_toxic':         np.nanmean(r[~toxic_mask]),
+        'non_toxic_pct_predicted':  np.nanmean(pct_predicted[~toxic_mask]),
+        'nr_empty_pred':            np.nansum(empty_pred),
+        'nr_empty_label':           np.nansum(empty_label),
+        'nr_empty_both':            np.nansum(empty_pred & empty_label),
+        'nr_samples':               len(f1),
+    }
+
+
+def evaluate_token_level(
+        token_prediction_mask, dataset,
+        propagate_binary_predictions=False, nr_spaces_to_fill=1,
+):
     token_char_offsets = dataset['char_offsets']
     char_label_mask = dataset['toxic_mask']
     toxic_mask = np.array(dataset['toxic'])
@@ -50,9 +93,11 @@ def evaluate_token_level(token_prediction_mask, dataset, propagate_binary_predic
     if propagate_binary_predictions and 'toxic_prediction' not in dataset.features:
         raise ValueError("Toxicity predictions are required if they are to be propagated.")
 
-    nr_rows = len(token_prediction_mask)
     char_idxs = np.arange(max(len(ch_mask) for ch_mask in char_label_mask))
+    nr_rows = len(token_prediction_mask)
+    pct_predicted = np.full(nr_rows, np.nan)
     f1, p, r = np.full(nr_rows, np.nan), np.full(nr_rows, np.nan), np.full(nr_rows, np.nan)
+    empty_pred, empty_label = np.full(nr_rows, False), np.full(nr_rows, False)
     for i in range(nr_rows):
         l = len(char_label_mask[i])
         label_chars_offsets = set(char_idxs[:l][char_label_mask[i]])
@@ -78,36 +123,27 @@ def evaluate_token_level(token_prediction_mask, dataset, propagate_binary_predic
 
             char_prediction_mask = convert_mask_to_char_level(token_prediction_mask[i])
             pred_chars_offsets = set(char_idxs[:l][char_prediction_mask])
+            pred_chars_offsets = _fill_empty_spaces(pred_chars_offsets, nr_spaces_to_fill)
 
-        _f1, _p, _r, _ = metrics(pred_chars_offsets, label_chars_offsets)
-        f1[i] = _f1
-        p[i] = _p
-        r[i] = _r
-    return {
-        'F1 (micro)': np.nanmean(f1),
-        'Precision (micro)': np.nanmean(p),
-        'Recall (micro)': np.nanmean(r),
-        'F1 (toxic)': np.nanmean(f1[toxic_mask]),
-        'Precision (toxic)': np.nanmean(p[toxic_mask]),
-        'Recall (toxic)': np.nanmean(r[toxic_mask]),
-        'F1 (toxic-no_span)': np.nanmean(f1[toxic_mask & ~span_mask]),
-        'Precision (toxic-no_span)': np.nanmean(p[toxic_mask & ~span_mask]),
-        'Recall (toxic-no_span)': np.nanmean(r[toxic_mask & ~span_mask]),
-        'F1 (non-toxic)': np.nanmean(f1[~toxic_mask]),
-        'Precision (non-toxic)': np.nanmean(p[~toxic_mask]),
-        'Recall (non-toxic)': np.nanmean(r[~toxic_mask]),
-    }
+        f1[i], p[i], r[i], empty_result = metrics(pred_chars_offsets, label_chars_offsets)
+        empty_pred[i] = MetricEmptySetResult.PRED in empty_result
+        empty_label[i] = MetricEmptySetResult.LABEL in empty_result
+        pct_predicted[i] = len(pred_chars_offsets) / l if l > 0 else float('nan')
+    return _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted)
 
 
-def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True, propagate_binary_predictions=True):
-    split = df[df['split'] == split].copy()
-    split['Precision'] = np.nan
-    split['Recall'] = np.nan
-    split['F1'] = np.nan
-    split['% Predicted'] = np.nan
+def evaluate_lexicon(
+        lexicon_tokens, df, split='dev', propagate_binary_predictions=True, nr_spaces_to_fill=1,
+):
+    split = df[df['split'] == split]
+    toxic_mask = split['toxic'].to_numpy()
+    span_mask = split['toxic_mask'].map(lambda x: any(x)).to_numpy()
 
-    nr_empty_pred = nr_empty_label = nr_empty_both = 0
-    for index, row in tqdm(split.iterrows(), total=len(split), leave=False):
+    nr_rows = len(split)
+    pct_predicted = np.full(nr_rows, np.nan)
+    f1, p, r = np.full(nr_rows, np.nan), np.full(nr_rows, np.nan), np.full(nr_rows, np.nan)
+    empty_pred, empty_label = np.full(nr_rows, False), np.full(nr_rows, False)
+    for i, (_, row) in tqdm(enumerate(split.iterrows()), total=nr_rows, leave=False):
         full_text = row.full_text
 
         label = set(i for i, b in enumerate(row.toxic_mask) if b)
@@ -119,41 +155,13 @@ def evaluate_lexicon(lexicon_tokens, df, split='dev', join_predicted_words=True,
             for match in re.finditer(expr, full_text, re.I):
                 pred.update(set(range(match.start(), match.end())))
 
-            if join_predicted_words and len(pred) > 0:
-                min_ = min(pred)
-                max_ = max(pred)
-                pred = set(range(min_, max_ + 1))
+            pred = _fill_empty_spaces(pred, nr_spaces_to_fill)
 
-        f1, p, r, (empty_pred, empty_label, empty_both) = metrics(pred, label)
-        nr_empty_pred += empty_pred
-        nr_empty_label += empty_label
-        nr_empty_both += empty_both
+        f1[i], p[i], r[i], empty_result = metrics(pred, label)
+        empty_pred[i] = MetricEmptySetResult.PRED in empty_result
+        empty_label[i] = MetricEmptySetResult.LABEL in empty_result
+        pct_predicted[i] = len(pred) / len(full_text) if len(full_text) > 0 else float('nan')
 
-        split.at[index, 'Precision'] = p
-        split.at[index, 'Recall'] = r
-        split.at[index, 'F1'] = f1
-        split.at[index, '% Predicted'] = len(pred) / len(full_text) if len(full_text) > 0 else float('nan')
-
-    results = {
-        'F1 (micro)': split['F1'].mean(),
-        'Precision (micro)': split['Precision'].mean(),
-        'Recall (micro)': split['Recall'].mean(),
-        'F1 (toxic)': split.loc[split['toxic'], 'F1'].mean(),
-        'Precision (toxic)': split.loc[split['toxic'], 'Precision'].mean(),
-        'Recall (toxic)': split.loc[split['toxic'], 'Recall'].mean(),
-        'F1 (toxic-no_span)': split.loc[split['toxic'] & ~split['toxic_mask'].any(), 'F1'].mean(),
-        'Precision (toxic-no_span)': split.loc[split['toxic'] & ~split['toxic_mask'].any(), 'Precision'].mean(),
-        'Recall (toxic-no_span)': split.loc[split['toxic'] & ~split['toxic_mask'].any(), 'Recall'].mean(),
-        'F1 (non-toxic)': split.loc[~split['toxic'], 'F1'].mean(),
-        'Precision (non-toxic)': split.loc[~split['toxic'], 'Precision'].mean(),
-        'Recall (non-toxic)': split.loc[~split['toxic'], 'Recall'].mean(),
-        'non-toxic accuracy': nr_empty_both / (nr_empty_label + nr_empty_both),
-        'non-toxic %-predicted': split.loc[~split['toxic'], '% Predicted'].mean(),
-        'nr_empty_pred': nr_empty_pred,
-        'nr_empty_label': nr_empty_label,
-        'nr_empty_both': nr_empty_both,
-        'nr_samples': len(split),
-        'lexicon size': len(lexicon_tokens),
-    }
-
+    results = _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted)
+    results['lexicon_size'] = len(lexicon_tokens)
     return results

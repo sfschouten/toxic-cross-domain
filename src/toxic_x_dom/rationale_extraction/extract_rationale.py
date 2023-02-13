@@ -81,6 +81,10 @@ class RationaleExtractionArguments:
         default_factory=lambda: [True, False], metadata={"help": ""}
     )
 
+    filling_chars: List[int] = field(
+        default_factory=lambda: [0, 1, 9999], metadata={"help": ""}
+    )
+
     min_threshold: float = 0.0
     max_threshold: float = 1.0
     steps_threshold: int = 50
@@ -88,14 +92,9 @@ class RationaleExtractionArguments:
 
 def search_rationale_extraction(attr_args, model_args, data_args, training_args):
     threshold_space = np.linspace(attr_args.min_threshold, attr_args.max_threshold, attr_args.steps_threshold)
-    RESULTS_COLUMNS = [
-        'F1 (micro)', 'Precision (micro)', 'Recall (micro)', 'F1 (toxic)', 'Precision (toxic)', 'Recall (toxic)',
-        'F1 (toxic-no_span)', 'Precision (toxic-no_span)', 'Recall (toxic-no_span)', 'F1 (non-toxic)',
-        'Precision (non-toxic)', 'Recall (non-toxic)'
-    ]
 
     results = []
-    for eval_dataset in set(SPAN_DATASETS.keys()) - {'cad', 'semeval'}:
+    for eval_dataset in set(SPAN_DATASETS.keys()):
         data_args.dataset_name = eval_dataset
 
         # TODO optimize by doing the prediction here instead of repeating for each attribution method
@@ -110,34 +109,37 @@ def search_rationale_extraction(attr_args, model_args, data_args, training_args)
                 for cumulative_scoring in attr_args.cumulative_scoring:
                     for propagate in attr_args.propagate_binary_predictions:
                         for threshold in threshold_space:
+                            for filling_chars in attr_args.filling_chars:
 
-                            if scale_attribution_scores:
-                                pass
+                                if scale_attribution_scores:
+                                    pass
 
-                            if cumulative_scoring:
-                                # TODO ...
-                                pass
+                                if cumulative_scoring:
+                                    # TODO ...
+                                    pass
 
-                            def add_predictions(example):
-                                example['pred_token_toxic_mask'] = [a > threshold for a in example['attributions']]
-                                return example
-                            attributed_dataset = attributed_dataset.map(add_predictions)
+                                def add_predictions(example):
+                                    example['pred_token_toxic_mask'] = [a > threshold for a in example['attributions']]
+                                    return example
+                                attributed_dataset = attributed_dataset.map(add_predictions)
 
-                            results_dict = evaluate_token_level(
-                                attributed_dataset['pred_token_toxic_mask'], attributed_dataset,
-                                propagate_binary_predictions=propagate
-                            )
+                                results_dict = evaluate_token_level(
+                                    attributed_dataset['pred_token_toxic_mask'], attributed_dataset,
+                                    propagate_binary_predictions=propagate,
+                                    nr_spaces_to_fill=filling_chars,
+                                )
 
-                            results.append([eval_dataset, method_name, scale_attribution_scores, cumulative_scoring,
-                                            propagate, threshold] + [results_dict[key] for key in RESULTS_COLUMNS])
+                                results.append(results_dict | {
+                                    'eval_dataset': eval_dataset,
+                                    'attribution_method': method_name,
+                                    'scale_scores': scale_attribution_scores,
+                                    'cumulative_scoring': cumulative_scoring,
+                                    'propagate_binary': propagate,
+                                    'threshold': threshold,
+                                    'filling_chars': filling_chars,
+                                })
 
-    results_df = pd.DataFrame(
-        results,
-        columns=['eval_dataset', 'attribution_method', 'scale_scores', 'cumulative_scoring', 'propagate_binary',
-                 'threshold', 'f1_micro', 'precision_micro', 'recall_micro', 'f1_toxic', 'precision_toxic',
-                 'recall_toxic', 'f1_toxic_no_span', 'precision_toxic_no_span', 'recall_toxic_no_span', 'f1_non_toxic',
-                 'precision_non_toxic', 'recall_non_toxic']
-    )
+    results_df = pd.DataFrame(results)
     attribution_columns = ['attribution_method', 'scale_scores', 'cumulative_scoring', 'threshold']
     attribution_df = results_df[attribution_columns]
     results_df = results_df.drop(columns=attribution_columns)
@@ -145,7 +147,6 @@ def search_rationale_extraction(attr_args, model_args, data_args, training_args)
 
     train_dataset_col = [model_args.model_name_or_path.split('-')[-1].replace('/', '')] * len(results_df.index)
     results_df['train_dataset'] = train_dataset_col
-    results_df['filling_chars'] = -1
 
     db = open_db()
     columns = ','.join(results_df.columns)

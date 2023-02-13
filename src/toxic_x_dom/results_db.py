@@ -22,14 +22,6 @@ def initialize_db(file_name=RESULTS_FILE):
         query = schema_file.read()
         con.execute(query)
 
-    # TESTING
-    con.execute(
-        "INSERT INTO evaluation "
-        "VALUES (DEFAUlT, 'test123', 'train123', FALSE, -1, NULL, NULL, NULL, 0.4, NULL, NULL, NULL, NULL, NULL, 0.6, NULL, NULL) "
-        "RETURNING id; "
-    )
-    uuids = con.fetchall()
-
     con.close()
 
 

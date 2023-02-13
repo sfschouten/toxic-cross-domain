@@ -1,5 +1,4 @@
 import argparse
-import csv
 import uuid
 
 import pandas as pd
@@ -22,17 +21,10 @@ BINARY_TOXICITY_CLASSIFIERS = {
 
 def gridsearch(span_datasets, existing_lexicons, config):
     MIN_OCCURRENCE = config['min_occurrence_axis']
-    JOIN_PREDICTED = config['join_predicted_axis']
-    PROP_BINARY = config['join_predicted_axis']
+    FILL_CHARS = config['filling_chars_axis']
+    PROP_BINARY = config['prop_binary_axis']
 
     THETA = np.linspace(config['min_theta'], config['max_theta'], config['steps_theta'])
-    RESULTS_COLUMNS = [
-        'F1 (micro)', 'Precision (micro)', 'Recall (micro)', 'F1 (toxic)', 'Precision (toxic)', 'Recall (toxic)',
-        'F1 (toxic-no_span)', 'Precision (toxic-no_span)', 'Recall (toxic-no_span)', 'F1 (non-toxic)',
-        'Precision (non-toxic)', 'Recall (non-toxic)', 'lexicon size']
-    #'non-toxic accuracy', 'non-toxic %-predicted', 'nr_empty_pred',
-    #    'nr_empty_label', 'nr_empty_both', 'nr_samples',
-    #]
 
     if config['constructed_lexicons']:
         scores = {
@@ -49,7 +41,7 @@ def gridsearch(span_datasets, existing_lexicons, config):
 
     results = []
 
-    total_steps = len(span_datasets) * len(JOIN_PREDICTED) * len(PROP_BINARY) * (
+    total_steps = len(span_datasets) * len(FILL_CHARS) * len(PROP_BINARY) * (
             (len(span_datasets) * len(MIN_OCCURRENCE) * config['steps_theta'] if config['constructed_lexicons'] else 0)
             + (len(existing_lexicons) if config['existing_lexicons'] else 0)
     )
@@ -60,9 +52,9 @@ def gridsearch(span_datasets, existing_lexicons, config):
     for dev_dataset_key, dev_df in pbar1:
         pbar1.set_postfix({'key': dev_dataset_key})
 
-        pbar2 = tqdm(JOIN_PREDICTED, desc='Join predicted words?', leave=False)
-        for join_predicted in pbar2:
-            pbar2.set_postfix({'?': str(join_predicted)})
+        pbar2 = tqdm(FILL_CHARS, desc='filling_chars', leave=False)
+        for filling_chars in pbar2:
+            pbar2.set_postfix({'?': str(filling_chars)})
 
             pbar5 = tqdm(PROP_BINARY, desc='Propagate predictions from binary model?', leave=False)
             for prop_binary in pbar5:
@@ -73,13 +65,17 @@ def gridsearch(span_datasets, existing_lexicons, config):
                     for lexicon_key, lexicon in existing_lexicons.items():
                         results_dict = evaluate_lexicon(
                             lexicon, dev_df,
-                            join_predicted_words=join_predicted,
                             propagate_binary_predictions=prop_binary,
+                            nr_spaces_to_fill=filling_chars
                         )
-                        results.append(
-                            [lexicon_key, dev_dataset_key, join_predicted, -1, np.nan, prop_binary]
-                            + [results_dict[key] for key in RESULTS_COLUMNS]
-                        )
+                        results.append(results_dict | {
+                            'train_dataset': lexicon_key,
+                            'eval_dataset': dev_dataset_key,
+                            'min_occurrence': -1,
+                            'theta': np.nan,
+                            'propagate_binary': prop_binary,
+                            'filling_chars': filling_chars,
+                        })
                         pbar_total.update()
 
                 if config['constructed_lexicons']:
@@ -102,27 +98,24 @@ def gridsearch(span_datasets, existing_lexicons, config):
                                     lexicon_tokens = []
                                 results_dict = evaluate_lexicon(
                                     lexicon_tokens, dev_df,
-                                    join_predicted_words=join_predicted,
                                     propagate_binary_predictions=prop_binary,
+                                    nr_spaces_to_fill=filling_chars
                                 )
-
-                                results.append(
-                                    [lexicon_key, dev_dataset_key, join_predicted, min_occ, theta, prop_binary]
-                                    + [results_dict[key] for key in RESULTS_COLUMNS])
+                                results.append(results_dict | {
+                                    'train_dataset': lexicon_key,
+                                    'eval_dataset': dev_dataset_key,
+                                    'min_occurrence': min_occ,
+                                    'theta': theta,
+                                    'propagate_binary': prop_binary,
+                                    'filling_chars': filling_chars,
+                                })
                                 pbar_total.update()
 
-    results_df = pd.DataFrame(
-        results,
-        columns=['train_dataset', 'eval_dataset', 'join_predicted', 'min_occurrence', 'theta', 'propagate_binary',
-                 'f1_micro', 'precision_micro', 'recall_micro', 'f1_toxic', 'precision_toxic',
-                 'recall_toxic', 'f1_toxic_no_span', 'precision_toxic_no_span', 'recall_toxic_no_span', 'f1_non_toxic',
-                 'precision_non_toxic', 'recall_non_toxic', 'lexicon_size']
-    )
+    results_df = pd.DataFrame(results)
     lexicon_columns = ['lexicon_size', 'min_occurrence', 'theta']
     lexicon_df = results_df[lexicon_columns]
-    results_df = results_df.drop(columns=lexicon_columns+['join_predicted'])
+    results_df = results_df.drop(columns=lexicon_columns)
     results_df['id'] = [uuid.uuid4() for _ in range(len(results_df.index))]
-    results_df['filling_chars'] = 1001          # TODO ...
 
     db = open_db()
     columns = ','.join(results_df.columns)
@@ -147,12 +140,12 @@ if __name__ == "__main__":
 
     # the axes of the grid we search
     parser.add_argument('--min_occurrence_axis', default=[1, 3, 5, 7, 11], nargs='*', type=int)
-    parser.add_argument('--join_predicted_axis', choices=[True, False], default=[True, False], nargs='*', type=bool)
+    parser.add_argument('--filling_chars_axis', default=[0, 1, 9999], nargs='*', type=int)
     parser.add_argument('--prop_binary_axis', choices=[True, False], default=[True, False], nargs='*', type=bool)
 
     parser.add_argument('--min_theta', default=0.0, type=float)
     parser.add_argument('--max_theta', default=0.95, type=float)
-    parser.add_argument('--steps_theta', default=21, type=int)
+    parser.add_argument('--steps_theta', default=20, type=int)
 
     args = parser.parse_args()
     _config = {**vars(args)}

@@ -28,7 +28,6 @@ import numpy as np
 from datasets import ClassLabel, load_dataset
 
 import transformers
-from torch import FloatTensor, IntTensor
 from transformers import (
     AutoConfig,
     AutoModelForTokenClassification,
