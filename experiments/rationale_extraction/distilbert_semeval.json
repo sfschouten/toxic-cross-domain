@@ -1,5 +1,4 @@
 {
-  "results_file": "outputs/distilbert_semeval.csv",
   "output_dir": "outputs/distilbert-semeval/",
   "model_name_or_path": "../binary_classification/outputs/distilbert-semeval/",
   "dataset_name": "semeval",

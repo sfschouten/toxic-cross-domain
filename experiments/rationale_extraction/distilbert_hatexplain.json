@@ -1,5 +1,4 @@
 {
-  "results_file": "outputs/distilbert_hatexplain.csv",
   "output_dir": "outputs/distilbert-hatexplain/",
   "model_name_or_path": "../binary_classification/outputs/distilbert-hatexplain/",
   "dataset_name": "hatexplain",

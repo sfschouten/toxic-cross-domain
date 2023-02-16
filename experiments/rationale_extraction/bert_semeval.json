@@ -1,5 +1,4 @@
 {
-  "results_file": "outputs/bert_semeval.csv",
   "output_dir": "outputs/bert-semeval/",
   "model_name_or_path": "../binary_classification/outputs/bert-semeval/",
   "dataset_name": "semeval",

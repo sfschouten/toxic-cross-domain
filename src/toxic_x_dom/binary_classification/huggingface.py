@@ -65,9 +65,12 @@ logger = logging.getLogger(__name__)
 PROJECT_HOME = os.getenv('TOXIC_X_DOM_HOME')
 
 
-def add_predictions_to_dataset(dataset_name, config_key='bert', split_key='dev'):
+def add_predictions_to_dataset(
+        dataset_name, model_train_dataset,
+        config_key='bert', split_key='dev', return_as_pandas=True
+):
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-    model_path = os.path.join(PROJECT_HOME, f'experiments/binary_classification/outputs/{config_key}-{dataset_name}/')
+    model_path = os.path.join(PROJECT_HOME, f'experiments/binary_classification/outputs/{config_key}-{model_train_dataset}/')
     out_dir = os.path.join(PROJECT_HOME, 'experiments/binary_classification/outputs/temp/')
     model_args, data_args, training_args = parser.parse_dict({
         'output_dir':           out_dir,
@@ -80,6 +83,9 @@ def add_predictions_to_dataset(dataset_name, config_key='bert', split_key='dev')
     })
     results = main(model_args, data_args, training_args)
     shutil.rmtree(out_dir)
+
+    if not return_as_pandas:
+        return results
 
     splits = []
     for key, split_data in results['raw_datasets'].items():

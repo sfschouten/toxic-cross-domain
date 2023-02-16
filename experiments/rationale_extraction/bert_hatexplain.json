@@ -1,5 +1,4 @@
 {
-  "results_file": "outputs/bert_hatexplain.csv",
   "output_dir": "outputs/bert-hatexplain/",
   "model_name_or_path": "../binary_classification/outputs/bert-hatexplain/",
   "dataset_name": "hatexplain",

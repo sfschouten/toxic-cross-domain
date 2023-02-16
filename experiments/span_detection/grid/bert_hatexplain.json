@@ -1,0 +1,9 @@
+{
+  "model_name_or_path": "../train/outputs/bert-hatexplain/",
+  "dataset_name": "hatexplain",
+  "do_eval": true,
+  "evaluation_strategy": "epoch",
+  "output_dir": "outputs/bert-hatexplain/",
+  "overwrite_output_dir": true,
+  "include_inputs_for_metrics": true
+}

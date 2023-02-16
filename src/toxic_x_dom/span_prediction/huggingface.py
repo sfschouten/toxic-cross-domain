@@ -45,6 +45,7 @@ from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 import toxic_x_dom.data
+from toxic_x_dom.binary_classification.huggingface import add_predictions_to_dataset
 from toxic_x_dom.evaluation import evaluate_token_level
 
 #
@@ -164,7 +165,7 @@ class DataTrainingArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     include_nontoxic_samples: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={"help": "Whether or not to filter out non-toxic samples from the data."}
     )
     max_seq_length: int = field(
@@ -229,18 +230,25 @@ class DataTrainingArguments:
         self.task_name = self.task_name.lower()
 
 
-def main():
-    # See all possible arguments in src/transformers/training_args.py
-    # or by passing the --help flag to this script.
-    # We now keep distinct sets of args, for a cleaner separation of concerns.
+@dataclass
+class EvaluationArguments:
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
-    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
-        # If we pass only one argument to the script, and it's the path to a json file,
-        # let's parse it to get our arguments.
-        model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
-    else:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    filling_chars: Optional[int] = field(
+        default=1,
+        metadata={"help": "The minimum number of consecutive non-toxic characters allowed between two toxic spans."})
+
+    binary_toxicity_model: Optional[str] = field(
+        default=None,
+        metadata={"help": "The model to use for toxicity prediction."}
+    )
+
+    propagate_binary: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether or not to propagate binary toxicity predictions to the span prediction evaluation."}
+    )
+
+
+def main(model_args, data_args, training_args, eval_args):
 
     # Setup logging
     logging.basicConfig(
@@ -282,10 +290,14 @@ def main():
     set_seed(training_args.seed)
 
     # Load dataset
-    raw_datasets = load_dataset(
-        toxic_x_dom.data.__file__,
-        dataset_name=data_args.dataset_name
-    )
+    if eval_args.propagate_binary:
+        train_dataset = model_args.model_name_or_path.split('-')[-1].replace('/', '')
+        results = add_predictions_to_dataset(data_args.dataset_name, train_dataset, return_as_pandas=False)
+        raw_datasets = results['raw_datasets']
+        predictions_list = list(results['predictions'])
+        raw_datasets['dev'] = raw_datasets['dev'].add_column('toxic_prediction', predictions_list)
+    else:
+        raw_datasets = load_dataset(toxic_x_dom.data.__file__, dataset_name=data_args.dataset_name)
 
     if not data_args.include_nontoxic_samples:
         raw_datasets = raw_datasets.filter(lambda sample: sample['toxic'])
@@ -428,7 +440,11 @@ def main():
         labelled_mask = labels != -100
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
 
-        return evaluate_token_level(prediction_mask, eval_dataset)
+        return evaluate_token_level(
+            prediction_mask, eval_dataset,
+            nr_spaces_to_fill=eval_args.filling_chars,
+            propagate_binary_predictions=eval_args.propagate_binary,
+        )
 
     # Initialize our Trainer
     trainer = Trainer(
@@ -440,6 +456,8 @@ def main():
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
+
+    return_values = {'raw_datasets': raw_datasets}
 
     # Training
     if training_args.do_train:
@@ -472,6 +490,7 @@ def main():
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+        return_values['eval_metrics'] = metrics
 
     # Predict
     if training_args.do_predict:
@@ -510,6 +529,8 @@ def main():
     else:
         trainer.create_model_card(**kwargs)
 
+    return return_values
+
 
 def _mp_fn(index):
     # For xla_spawn (TPUs)
@@ -517,4 +538,16 @@ def _mp_fn(index):
 
 
 if __name__ == "__main__":
-    main()
+    # See all possible arguments in src/transformers/training_args.py
+    # or by passing the --help flag to this script.
+    # We now keep distinct sets of args, for a cleaner separation of concerns.
+
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments, EvaluationArguments))
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
+        # If we pass only one argument to the script, and it's the path to a json file,
+        # let's parse it to get our arguments.
+        _model_args, _data_args, _training_args, _eval_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        _model_args, _data_args, _training_args, _eval_args = parser.parse_args_into_dataclasses()
+
+    main(_model_args, _data_args, _training_args, _eval_args)

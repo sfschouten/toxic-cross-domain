@@ -61,7 +61,6 @@ def perform_attribution(model_args, data_args, training_args):
 
 @dataclass
 class RationaleExtractionArguments:
-    results_file: str = 'attribution_results.csv'
 
     captum_classes: List[str] = field(
         default_factory=lambda: [

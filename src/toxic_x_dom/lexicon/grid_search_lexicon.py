@@ -1,5 +1,4 @@
 import argparse
-import uuid
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -11,7 +10,9 @@ from toxic_x_dom.evaluation import evaluate_lexicon
 
 from toxic_x_dom.binary_classification.linear import add_predictions_to_dataset as default_linear
 from toxic_x_dom.binary_classification.huggingface import add_predictions_to_dataset as default_huggingface
-from toxic_x_dom.results_db import open_db
+from toxic_x_dom.results_db import open_db, insert_evaluation
+
+from toxic_x_dom.data import SPAN_DATASETS
 
 BINARY_TOXICITY_CLASSIFIERS = {
     'count_based_logistic_regression': default_linear,
@@ -29,27 +30,27 @@ def gridsearch(span_datasets, existing_lexicons, config):
     if config['constructed_lexicons']:
         scores = {
             (key, min_occ): calculate_scores(*count_tokens(df, minimum_occurrences=min_occ))
-            for key, df in span_datasets.items()
+            for key, df in {k[0]: df for k, df in span_datasets.items() if k[0] == k[1]}.items()
             for min_occ in MIN_OCCURRENCE
         }
         constructed_lexicons = {
             (lex_key, min_occ, theta): construct_lexicon(scores[(lex_key, min_occ)], theta=theta)
             for theta in THETA
             for min_occ in MIN_OCCURRENCE
-            for lex_key in span_datasets.keys()
+            for lex_key in SPAN_DATASETS.keys()
         }
 
     results = []
 
-    total_steps = len(span_datasets) * len(FILL_CHARS) * len(PROP_BINARY) * (
-            (len(span_datasets) * len(MIN_OCCURRENCE) * config['steps_theta'] if config['constructed_lexicons'] else 0)
+    total_steps = len(SPAN_DATASETS) * len(FILL_CHARS) * len(PROP_BINARY) * (
+            (len(SPAN_DATASETS) * len(MIN_OCCURRENCE) * config['steps_theta'] if config['constructed_lexicons'] else 0)
             + (len(existing_lexicons) if config['existing_lexicons'] else 0)
     )
     pbar_total = tqdm(total=total_steps, desc='Overall Progress')
 
     # for evaluation datasets
-    pbar1 = tqdm(span_datasets.items(), desc='Evaluation dataset', leave=False)
-    for dev_dataset_key, dev_df in pbar1:
+    pbar1 = tqdm(SPAN_DATASETS.keys(), desc='Evaluation dataset', leave=False)
+    for dev_dataset_key in pbar1:
         pbar1.set_postfix({'key': dev_dataset_key})
 
         pbar2 = tqdm(FILL_CHARS, desc='filling_chars', leave=False)
@@ -60,30 +61,32 @@ def gridsearch(span_datasets, existing_lexicons, config):
             for prop_binary in pbar5:
                 pbar5.set_postfix({'prop?': str(prop_binary)})
 
-                if config['existing_lexicons']:
-                    # for existing lexicons
-                    for lexicon_key, lexicon in existing_lexicons.items():
-                        results_dict = evaluate_lexicon(
-                            lexicon, dev_df,
-                            propagate_binary_predictions=prop_binary,
-                            nr_spaces_to_fill=filling_chars
-                        )
-                        results.append(results_dict | {
-                            'train_dataset': lexicon_key,
-                            'eval_dataset': dev_dataset_key,
-                            'min_occurrence': -1,
-                            'theta': np.nan,
-                            'propagate_binary': prop_binary,
-                            'filling_chars': filling_chars,
-                        })
-                        pbar_total.update()
+                pbar0 = tqdm(SPAN_DATASETS.keys(), desc="'Train' Dataset",  leave=False)
+                for train_dataset_key in pbar0:
+                    pbar0.set_postfix({'key': train_dataset_key})
 
-                if config['constructed_lexicons']:
-                    # for constructed lexicons
-                    pbar0 = tqdm(span_datasets.items(), desc="'Train' Dataset",  leave=False)
-                    for lexicon_key, _ in pbar0:
-                        pbar0.set_postfix({'key': lexicon_key})
+                    dataset = span_datasets[(train_dataset_key, dev_dataset_key)]
 
+                    if config['existing_lexicons']:
+                        # for existing lexicons
+                        for lexicon_key, lexicon in existing_lexicons.items():
+                            results_dict = evaluate_lexicon(
+                                lexicon, dataset,
+                                propagate_binary_predictions=prop_binary,
+                                nr_spaces_to_fill=filling_chars
+                            )
+                            results.append(results_dict | {
+                                'train_dataset': train_dataset_key,
+                                'eval_dataset': dev_dataset_key,
+                                'min_occurrence': -1,
+                                'theta': np.nan,
+                                'propagate_binary': prop_binary,
+                                'filling_chars': filling_chars,
+                                'lexicon_key': lexicon_key,
+                            })
+                            pbar_total.update()
+
+                    if config['constructed_lexicons']:
                         pbar3 = tqdm(MIN_OCCURRENCE, desc='Min occurrence', leave=False)
                         for min_occ in pbar3:
                             pbar3.set_postfix({'min_occ': min_occ})
@@ -91,38 +94,36 @@ def gridsearch(span_datasets, existing_lexicons, config):
                             pbar4 = tqdm(THETA, total=config['steps_theta'], desc='Theta',leave=False)
                             for theta in pbar4:
                                 pbar4.set_postfix({'θ': theta})
-                                lexicon = constructed_lexicons[(lexicon_key, min_occ, theta)]
+                                lexicon = constructed_lexicons[(train_dataset_key, min_occ, theta)]
                                 if len(lexicon) > 0:
                                     lexicon_tokens, _ = zip(*lexicon)
                                 else:
                                     lexicon_tokens = []
                                 results_dict = evaluate_lexicon(
-                                    lexicon_tokens, dev_df,
+                                    lexicon_tokens, dataset,
                                     propagate_binary_predictions=prop_binary,
                                     nr_spaces_to_fill=filling_chars
                                 )
                                 results.append(results_dict | {
-                                    'train_dataset': lexicon_key,
+                                    'train_dataset': train_dataset_key,
                                     'eval_dataset': dev_dataset_key,
                                     'min_occurrence': min_occ,
                                     'theta': theta,
                                     'propagate_binary': prop_binary,
                                     'filling_chars': filling_chars,
+                                    'lexicon_key': train_dataset_key
                                 })
                                 pbar_total.update()
 
     results_df = pd.DataFrame(results)
-    lexicon_columns = ['lexicon_size', 'min_occurrence', 'theta']
-    lexicon_df = results_df[lexicon_columns]
-    results_df = results_df.drop(columns=lexicon_columns)
-    results_df['id'] = [uuid.uuid4() for _ in range(len(results_df.index))]
+    results_df = insert_evaluation(results_df)
 
     db = open_db()
-    columns = ','.join(results_df.columns)
-    db.execute(f'INSERT INTO evaluation({columns}) SELECT {columns} FROM results_df;')
 
-    lexicon_df.insert(0, column='id', value=results_df['id'])
-    db.execute('INSERT INTO lexicon_evaluation SELECT * FROM lexicon_df;')
+    LEXICON_COLUMNS = ['id', 'lexicon_key', 'lexicon_size', 'min_occurrence', 'theta']
+    columns = ','.join(LEXICON_COLUMNS)
+    db.execute(f'INSERT INTO lexicon_evaluation({columns}) SELECT {columns} FROM results_df;')
+
     db.close()
 
 
@@ -133,7 +134,7 @@ if __name__ == "__main__":
     parser.add_argument('--results_file', default='lexicon_results.csv', type=str)
     parser.add_argument('--binary_toxicity_classifier',
                         choices=list(BINARY_TOXICITY_CLASSIFIERS.keys()),
-                        default='count_based_logistic_regression',
+                        default='huggingface',
                         type=str)
     parser.add_argument('--skip_existing_lexicons', action='store_false', dest='existing_lexicons')
     parser.add_argument('--skip_constructed_lexicons', action='store_false', dest='constructed_lexicons')
@@ -152,11 +153,11 @@ if __name__ == "__main__":
 
     existing = load_lexicons()
 
-    from toxic_x_dom.data import SPAN_DATASETS
-
     # train/load binary classifiers
+    classifier = BINARY_TOXICITY_CLASSIFIERS[_config['binary_toxicity_classifier']]
     _span_datasets = {
-        key: BINARY_TOXICITY_CLASSIFIERS[_config['binary_toxicity_classifier']](key) for key in SPAN_DATASETS.keys()
+        (train_key, eval_key): classifier(eval_key, train_key)
+        for train_key in SPAN_DATASETS.keys() for eval_key in SPAN_DATASETS.keys()
     }
 
     print(f'F1 scores for binary classifiers on dev split: \n { {key: f1 for key, (_, f1) in _span_datasets.items()} }')
