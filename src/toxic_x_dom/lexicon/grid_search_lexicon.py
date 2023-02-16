@@ -10,7 +10,7 @@ from toxic_x_dom.evaluation import evaluate_lexicon
 
 from toxic_x_dom.binary_classification.linear import add_predictions_to_dataset as default_linear
 from toxic_x_dom.binary_classification.huggingface import add_predictions_to_dataset as default_huggingface
-from toxic_x_dom.results_db import open_db, insert_evaluation
+from toxic_x_dom.results_db import open_db, insert_evaluation, insert_predictions
 
 from toxic_x_dom.data import SPAN_DATASETS
 
@@ -41,6 +41,7 @@ def gridsearch(span_datasets, existing_lexicons, config):
         }
 
     results = []
+    predictions = []
 
     total_steps = len(SPAN_DATASETS) * len(FILL_CHARS) * len(PROP_BINARY) * (
             (len(SPAN_DATASETS) * len(MIN_OCCURRENCE) * config['steps_theta'] if config['constructed_lexicons'] else 0)
@@ -75,7 +76,7 @@ def gridsearch(span_datasets, existing_lexicons, config):
                                 propagate_binary_predictions=prop_binary,
                                 nr_spaces_to_fill=filling_chars
                             )
-                            results.append(results_dict | {
+                            results.append(results_dict['metrics'] | {
                                 'train_dataset': train_dataset_key,
                                 'eval_dataset': dev_dataset_key,
                                 'min_occurrence': -1,
@@ -84,6 +85,7 @@ def gridsearch(span_datasets, existing_lexicons, config):
                                 'filling_chars': filling_chars,
                                 'lexicon_key': lexicon_key,
                             })
+                            predictions.append(results_dict['predictions'])
                             pbar_total.update()
 
                     if config['constructed_lexicons']:
@@ -104,7 +106,7 @@ def gridsearch(span_datasets, existing_lexicons, config):
                                     propagate_binary_predictions=prop_binary,
                                     nr_spaces_to_fill=filling_chars
                                 )
-                                results.append(results_dict | {
+                                results.append(results_dict['metrics'] | {
                                     'train_dataset': train_dataset_key,
                                     'eval_dataset': dev_dataset_key,
                                     'min_occurrence': min_occ,
@@ -113,10 +115,13 @@ def gridsearch(span_datasets, existing_lexicons, config):
                                     'filling_chars': filling_chars,
                                     'lexicon_key': train_dataset_key
                                 })
+                                predictions.append(results_dict['predictions'])
                                 pbar_total.update()
 
     results_df = pd.DataFrame(results)
     results_df = insert_evaluation(results_df)
+
+    insert_predictions(results_df['id'], predictions)
 
     db = open_db()
 

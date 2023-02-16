@@ -440,11 +440,13 @@ def main(model_args, data_args, training_args, eval_args):
         labelled_mask = labels != -100
         prediction_mask = labelled_mask & ((predictions == B) | (predictions == I))
 
-        return evaluate_token_level(
+        result = evaluate_token_level(
             prediction_mask, eval_dataset,
             nr_spaces_to_fill=eval_args.filling_chars,
             propagate_binary_predictions=eval_args.propagate_binary,
         )
+        return_values['predictions'] = result['predictions']
+        return result['metrics']
 
     # Initialize our Trainer
     trainer = Trainer(

@@ -73,9 +73,28 @@ CREATE TABLE rationale_evaluation(
     FOREIGN KEY (id) REFERENCES evaluation(id)
 );
 
-CREATE TABLE prediction_evaluation(
+CREATE TABLE span_pred_evaluation(
     id UUID PRIMARY KEY,
     FOREIGN KEY (id) REFERENCES evaluation(id)
+);
+
+CREATE TABLE span_data(
+    sample_id VARCHAR PRIMARY KEY,
+    dataset_key VARCHAR,
+    split VARCHAR,
+    full_text VARCHAR,
+    toxic BOOLEAN,
+    toxic_mask BOOLEAN[],
+    toxic_tokens VARCHAR[],
+);
+
+CREATE TABLE predictions(
+    evaluation_id UUID,
+    sample_id VARCHAR,
+    toxic_prediction BOOLEAN,
+    span_prediction BOOLEAN[],
+    PRIMARY KEY (evaluation_id, sample_id),
+    FOREIGN KEY (evaluation_id) REFERENCES evaluation(id),
 );
 
 
@@ -85,13 +104,13 @@ FROM
 	SELECT eval_dataset, train_dataset, MAX(f1_toxic) AS max_f1_toxic,
 	CASE
 		WHEN le.id IS NOT NULL THEN 'lexicon'
-		WHEN pe.id IS NOT NULL THEN 'prediction'
+		WHEN pe.id IS NOT NULL THEN 'span_pred'
 		WHEN re.id IS NOT NULL THEN 'rationale'
 		ELSE ''
 	END AS method_type
 	FROM evaluation AS e
 	LEFT OUTER JOIN lexicon_evaluation AS le ON e.id = le.id
-	LEFT OUTER JOIN prediction_evaluation AS pe	ON e.id = pe.id
+	LEFT OUTER JOIN span_pred_evaluation AS pe	ON e.id = pe.id
 	LEFT OUTER JOIN rationale_evaluation AS re ON e.id = re.id
 	GROUP BY method_type, eval_dataset, train_dataset
 ) AS e_max
@@ -100,7 +119,7 @@ ON e_max.eval_dataset = e_max_p.eval_dataset
 AND e_max.train_dataset = e_max_p.train_dataset
 AND e_max.max_f1_toxic = e_max_p.f1_toxic
 LEFT OUTER JOIN lexicon_evaluation AS le ON e_max_p.id = le.id
-LEFT OUTER JOIN prediction_evaluation AS pe ON e_max_p.id = pe.id
+LEFT OUTER JOIN span_pred_evaluation AS pe ON e_max_p.id = pe.id
 LEFT OUTER JOIN rationale_evaluation AS re ON e_max_p.id = re.id;
 
 
@@ -110,13 +129,13 @@ FROM
 	SELECT eval_dataset, train_dataset, MAX(f1_har_macro) AS max_f1_har_macro,
 	CASE
 		WHEN le.id IS NOT NULL THEN 'lexicon'
-		WHEN pe.id IS NOT NULL THEN 'prediction'
+		WHEN pe.id IS NOT NULL THEN 'span_pred'
 		WHEN re.id IS NOT NULL THEN 'rationale'
 		ELSE ''
 	END AS method_type
 	FROM evaluation AS e
 	LEFT OUTER JOIN lexicon_evaluation AS le ON e.id = le.id
-	LEFT OUTER JOIN prediction_evaluation AS pe ON e.id = pe.id
+	LEFT OUTER JOIN span_pred_evaluation AS pe ON e.id = pe.id
 	LEFT OUTER JOIN rationale_evaluation AS re ON e.id = re.id
 	GROUP BY method_type, eval_dataset, train_dataset
 ) AS e_max
@@ -125,7 +144,7 @@ ON e_max.eval_dataset = e_max_p.eval_dataset
 AND e_max.train_dataset = e_max_p.train_dataset
 AND e_max.max_f1_har_macro = e_max_p.f1_har_macro
 LEFT OUTER JOIN lexicon_evaluation AS le ON e_max_p.id = le.id
-LEFT OUTER JOIN prediction_evaluation AS pe ON e_max_p.id = pe.id
+LEFT OUTER JOIN span_pred_evaluation AS pe ON e_max_p.id = pe.id
 LEFT OUTER JOIN rationale_evaluation AS re ON e_max_p.id = re.id;
 
 
@@ -134,13 +153,13 @@ CREATE VIEW tuned_in_domain_max_f1_har_macro_view AS
 		SELECT *,
 		CASE
 			WHEN le.id IS NOT NULL THEN 'lexicon'
-			WHEN pe.id IS NOT NULL THEN 'prediction'
+			WHEN pe.id IS NOT NULL THEN 'span_pred'
 			WHEN re.id IS NOT NULL THEN 'rationale'
 			ELSE ''
 		END AS method_type
 		FROM evaluation AS e
 		LEFT OUTER JOIN lexicon_evaluation AS le ON e.id = le.id
-		LEFT OUTER JOIN prediction_evaluation AS pe ON e.id = pe.id
+		LEFT OUTER JOIN span_pred_evaluation AS pe ON e.id = pe.id
 		LEFT OUTER JOIN rationale_evaluation AS re ON e.id = re.id
 	), in_domain_max AS (
 		SELECT method_type, train_dataset, eval_dataset, MAX(f1_har_macro) AS max_f1_har_macro
@@ -176,7 +195,7 @@ CREATE VIEW tuned_in_domain_max_f1_har_macro_view AS
 				AND e_in.cumulative_scoring IS NOT DISTINCT FROM e_cross.cumulative_scoring
 				AND e_in.threshold IS NOT DISTINCT FROM e_cross.threshold
 			) OR (
-				e_in.method_type = 'prediction' AND e_in.method_type = e_cross.method_type
+				e_in.method_type = 'span_pred' AND e_in.method_type = e_cross.method_type
 			)
 		)
 	)
@@ -188,13 +207,13 @@ CREATE VIEW tuned_in_domain_max_f1_toxic_view AS
 		SELECT *,
 		CASE
 			WHEN le.id IS NOT NULL THEN 'lexicon'
-			WHEN pe.id IS NOT NULL THEN 'prediction'
+			WHEN pe.id IS NOT NULL THEN 'span_pred'
 			WHEN re.id IS NOT NULL THEN 'rationale'
 			ELSE ''
 		END AS method_type
 		FROM evaluation AS e
 		LEFT OUTER JOIN lexicon_evaluation AS le ON e.id = le.id
-		LEFT OUTER JOIN prediction_evaluation AS pe ON e.id = pe.id
+		LEFT OUTER JOIN span_pred_evaluation AS pe ON e.id = pe.id
 		LEFT OUTER JOIN rationale_evaluation AS re ON e.id = re.id
 	), in_domain_max AS (
 		SELECT method_type, train_dataset, eval_dataset, MAX(f1_toxic) AS max_f1_toxic
@@ -230,7 +249,7 @@ CREATE VIEW tuned_in_domain_max_f1_toxic_view AS
 				AND e_in.cumulative_scoring IS NOT DISTINCT FROM e_cross.cumulative_scoring
 				AND e_in.threshold IS NOT DISTINCT FROM e_cross.threshold
 			) OR (
-				e_in.method_type = 'prediction' AND e_in.method_type = e_cross.method_type
+				e_in.method_type = 'span_pred' AND e_in.method_type = e_cross.method_type
 			)
 		)
 	)

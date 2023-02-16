@@ -7,7 +7,7 @@ import pandas as pd
 from transformers import HfArgumentParser, TrainingArguments
 
 from toxic_x_dom.data import SPAN_DATASETS
-from toxic_x_dom.results_db import insert_evaluation, open_db
+from toxic_x_dom.results_db import insert_evaluation, open_db, insert_predictions
 from toxic_x_dom.span_prediction.huggingface import ModelArguments, DataTrainingArguments, EvaluationArguments, main
 
 
@@ -29,6 +29,7 @@ def gridsearch(grid_args, model_args, data_args, train_args):
     data_args.include_nontoxic_samples = True
 
     results = []
+    predictions = []
     for eval_dataset in SPAN_DATASETS.keys():
         data_args.dataset_name = eval_dataset
         for filling_chars in grid_args.filling_chars:
@@ -46,15 +47,18 @@ def gridsearch(grid_args, model_args, data_args, train_args):
                     "propagate_binary": binary_propagate,
                     "filling_chars": filling_chars,
                 })
+                predictions.append(result_dict['predictions'])
 
     results_df = pd.DataFrame(results)
     results_df = insert_evaluation(results_df)
+
+    insert_predictions(results_df['id'], predictions)
 
     db = open_db()
 
     PREDICTIONS_COLUMNS = ['id']
     columns = ','.join(PREDICTIONS_COLUMNS)
-    db.execute(f'INSERT INTO prediction_evaluation({columns}) SELECT {columns} FROM results_df;')
+    db.execute(f'INSERT INTO span_pred_evaluation({columns}) SELECT {columns} FROM results_df;')
 
     db.close()
 

@@ -4,6 +4,7 @@ from enum import IntFlag
 from typing import Set
 
 import numpy as np
+import pandas as pd
 
 from tqdm import tqdm
 
@@ -89,8 +90,10 @@ def evaluate_token_level(
     char_label_mask = dataset['toxic_mask']
     toxic_mask = np.array(dataset['toxic'])
     span_mask = list_of_lists_to_numpy(dataset['toxic_mask']).astype(np.bool).any(axis=-1)
+    char_prediction_masks = []
 
-    if propagate_binary_predictions and 'toxic_prediction' not in dataset.features:
+    has_toxic_prediction = 'toxic_prediction' in dataset.features
+    if propagate_binary_predictions and not has_toxic_prediction:
         raise ValueError("Toxicity predictions are required if they are to be propagated.")
 
     char_idxs = np.arange(max(len(ch_mask) for ch_mask in char_label_mask))
@@ -102,6 +105,7 @@ def evaluate_token_level(
         l = len(char_label_mask[i])
         label_chars_offsets = set(char_idxs[:l][char_label_mask[i]])
         pred_chars_offsets = set()
+        char_prediction_mask = [False] * l
 
         if (not propagate_binary_predictions or dataset['toxic_prediction'][i]) and l > 0:
             offsets = token_char_offsets[i]
@@ -119,17 +123,29 @@ def evaluate_token_level(
                 ]))
                 result = [False] * m_offsets[0][1][0] + result         # prepend False in case 1st token is not 1st char
                 result = result + [False] * (l - m_offsets[-1][1][1])  # append False in case last token is not last char
-                return np.array(result)
+                return result
 
             char_prediction_mask = convert_mask_to_char_level(token_prediction_mask[i])
-            pred_chars_offsets = set(char_idxs[:l][char_prediction_mask])
+            pred_chars_offsets = set(char_idxs[:l][np.array(char_prediction_mask)])
             pred_chars_offsets = _fill_empty_spaces(pred_chars_offsets, nr_spaces_to_fill)
+
+        char_prediction_masks.append(char_prediction_mask)
 
         f1[i], p[i], r[i], empty_result = metrics(pred_chars_offsets, label_chars_offsets)
         empty_pred[i] = MetricEmptySetResult.PRED in empty_result
         empty_label[i] = MetricEmptySetResult.LABEL in empty_result
         pct_predicted[i] = len(pred_chars_offsets) / l if l > 0 else float('nan')
-    return _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted)
+
+    aggregate_metrics = _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted)
+    predictions = pd.DataFrame({
+        'sample_id': dataset['id'],
+        'span_prediction': char_prediction_masks,
+        'toxic_prediction': dataset['toxic_prediction'] if has_toxic_prediction else nr_rows * [None],
+    })
+    return {
+        'metrics': aggregate_metrics,
+        'predictions': predictions,
+    }
 
 
 def evaluate_lexicon(
@@ -138,6 +154,7 @@ def evaluate_lexicon(
     split = df[df['split'] == split]
     toxic_mask = split['toxic'].to_numpy()
     span_mask = split['toxic_mask'].map(lambda x: any(x)).to_numpy()
+    span_predictions = []
 
     nr_rows = len(split)
     pct_predicted = np.full(nr_rows, np.nan)
@@ -157,11 +174,21 @@ def evaluate_lexicon(
 
             pred = _fill_empty_spaces(pred, nr_spaces_to_fill)
 
+        span_predictions.append([True if i in pred else False for i in range(len(full_text))])
         f1[i], p[i], r[i], empty_result = metrics(pred, label)
         empty_pred[i] = MetricEmptySetResult.PRED in empty_result
         empty_label[i] = MetricEmptySetResult.LABEL in empty_result
         pct_predicted[i] = len(pred) / len(full_text) if len(full_text) > 0 else float('nan')
 
-    results = _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted)
-    results['lexicon_size'] = len(lexicon_tokens)
-    return results
+    aggr_metrics = _calc_aggregate_metrics(f1, p, r, toxic_mask, span_mask, empty_pred, empty_label, pct_predicted)
+    aggr_metrics['lexicon_size'] = len(lexicon_tokens)
+
+    predictions = pd.DataFrame({
+        'sample_id': split['id'],
+        'span_prediction': span_predictions,
+        'toxic_prediction': toxic_mask,
+    })
+    return {
+        'metrics': aggr_metrics,
+        'predictions': predictions,
+    }

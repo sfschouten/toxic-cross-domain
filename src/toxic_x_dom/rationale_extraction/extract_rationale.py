@@ -16,7 +16,7 @@ from toxic_x_dom.binary_classification.huggingface import main as binary_classif
 from toxic_x_dom.evaluation import evaluate_token_level
 
 from toxic_x_dom.data import SPAN_DATASETS
-from toxic_x_dom.results_db import open_db
+from toxic_x_dom.results_db import open_db, insert_evaluation, insert_predictions
 
 load_dotenv()
 
@@ -93,7 +93,8 @@ def search_rationale_extraction(attr_args, model_args, data_args, training_args)
     threshold_space = np.linspace(attr_args.min_threshold, attr_args.max_threshold, attr_args.steps_threshold)
 
     results = []
-    for eval_dataset in set(SPAN_DATASETS.keys()):
+    predictions = []
+    for eval_dataset in set(SPAN_DATASETS.keys()) - {'cad', 'semeval'}:
         data_args.dataset_name = eval_dataset
 
         # TODO optimize by doing the prediction here instead of repeating for each attribution method
@@ -128,7 +129,7 @@ def search_rationale_extraction(attr_args, model_args, data_args, training_args)
                                     nr_spaces_to_fill=filling_chars,
                                 )
 
-                                results.append(results_dict | {
+                                results.append(results_dict['metrics'] | {
                                     'eval_dataset': eval_dataset,
                                     'attribution_method': method_name,
                                     'scale_scores': scale_attribution_scores,
@@ -137,22 +138,19 @@ def search_rationale_extraction(attr_args, model_args, data_args, training_args)
                                     'threshold': threshold,
                                     'filling_chars': filling_chars,
                                 })
+                                predictions.append(results_dict['predictions'])
 
     results_df = pd.DataFrame(results)
-    attribution_columns = ['attribution_method', 'scale_scores', 'cumulative_scoring', 'threshold']
-    attribution_df = results_df[attribution_columns]
-    results_df = results_df.drop(columns=attribution_columns)
-    results_df['id'] = [uuid.uuid4() for _ in range(len(results_df.index))]
 
     train_dataset_col = [model_args.model_name_or_path.split('-')[-1].replace('/', '')] * len(results_df.index)
     results_df['train_dataset'] = train_dataset_col
 
-    db = open_db()
-    columns = ','.join(results_df.columns)
-    db.execute(f'INSERT INTO evaluation({columns}) SELECT {columns} FROM results_df;')
+    results_df = insert_evaluation(results_df)
+    insert_predictions(results_df['id'], predictions)
 
-    attribution_df.insert(0, column='id', value=results_df['id'])
-    db.execute('INSERT INTO rationale_evaluation SELECT * FROM attribution_df;')
+    db = open_db()
+    columns = ','.join(['id', 'attribution_method', 'scale_scores', 'cumulative_scoring', 'threshold'])
+    db.execute(f'INSERT INTO rationale_evaluation({columns}) SELECT {columns} FROM results_df;')
     db.close()
 
 
