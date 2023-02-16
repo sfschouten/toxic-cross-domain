@@ -35,7 +35,7 @@ def gridsearch(grid_args, model_args, data_args, train_args):
             for binary_propagate in grid_args.propagate_binary_predictions:
                 eval_args = EvaluationArguments()
                 eval_args.filling_chars = filling_chars
-                eval_args.binary_propagate = binary_propagate
+                eval_args.propagate_binary = binary_propagate
 
                 result_dict = main(model_args, data_args, train_args, eval_args)
                 metrics = {key.replace("eval_", ""): value for key, value in result_dict['eval_metrics'].items()}
