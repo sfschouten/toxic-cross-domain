@@ -94,7 +94,7 @@ def search_rationale_extraction(attr_args, model_args, data_args, training_args)
 
     results = []
     predictions = []
-    for eval_dataset in set(SPAN_DATASETS.keys()) - {'cad', 'semeval'}:
+    for eval_dataset in set(SPAN_DATASETS.keys()):
         data_args.dataset_name = eval_dataset
 
         # TODO optimize by doing the prediction here instead of repeating for each attribution method
