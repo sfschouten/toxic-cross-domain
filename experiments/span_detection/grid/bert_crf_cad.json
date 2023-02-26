@@ -1,0 +1,10 @@
+{
+  "custom_model_class": "toxic_x_dom.span_prediction.crf_models.BertCRF",
+  "model_name_or_path": "../train/outputs/bert-crf-cad/",
+  "dataset_name": "cad",
+  "do_eval": true,
+  "evaluation_strategy": "epoch",
+  "output_dir": "outputs/bert-crf-cad/",
+  "overwrite_output_dir": true,
+  "include_inputs_for_metrics": true
+}

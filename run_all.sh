@@ -10,7 +10,10 @@ pushd experiments/
     ./run.sh bert_cad.json
     ./run.sh bert_semeval.json
     ./run.sh bert_hatexplain.json
-  popd
+    ./run.sh bert_crf_cad.json
+    ./run.sh bert_crf_semeval.json
+    ./run.sh bert_crf_hatexplain.json
+   popd
   pushd lexicon/
     ./run.sh
   popd

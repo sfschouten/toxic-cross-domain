@@ -4,4 +4,4 @@ data/
 .env
 **/__pycache__/
 **/outputs/
-*.duckdb
+*.duckdb*
