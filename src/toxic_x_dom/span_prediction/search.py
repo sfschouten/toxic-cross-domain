@@ -24,7 +24,9 @@ class GridSearchArguments:
 
 
 def gridsearch(grid_args, model_args, data_args, train_args):
-    train_dataset_name = model_args.model_name_or_path.split('-')[-1].replace('/', '')
+    model_str_parts = model_args.model_name_or_path.split('/')[-2].split('-')
+    train_dataset_name = model_str_parts[-1]
+    model_key = "-".join(model_str_parts[:-1])
 
     data_args.include_nontoxic_samples = True
 
@@ -50,13 +52,14 @@ def gridsearch(grid_args, model_args, data_args, train_args):
                 predictions.append(result_dict['predictions'])
 
     results_df = pd.DataFrame(results)
+    results_df['model_key'] = model_key
     results_df = insert_evaluation(results_df)
 
     insert_predictions(results_df['id'], predictions)
 
     db = open_db()
 
-    PREDICTIONS_COLUMNS = ['id']
+    PREDICTIONS_COLUMNS = ['id', 'model_key']
     columns = ','.join(PREDICTIONS_COLUMNS)
     db.execute(f'INSERT INTO span_pred_evaluation({columns}) SELECT {columns} FROM results_df;')
 

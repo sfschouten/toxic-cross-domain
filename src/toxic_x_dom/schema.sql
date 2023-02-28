@@ -75,6 +75,7 @@ CREATE TABLE rationale_evaluation(
 
 CREATE TABLE span_pred_evaluation(
     id UUID PRIMARY KEY,
+    model_key VARCHAR,
     FOREIGN KEY (id) REFERENCES evaluation(id)
 );
 
@@ -162,10 +163,11 @@ CREATE VIEW tuned_in_domain_max_f1_har_macro_view AS
 	    LEFT OUTER JOIN span_pred_evaluation AS pe ON e.id = pe.id
 	    LEFT OUTER JOIN rationale_evaluation AS re ON e.id = re.id
 	), in_domain_max AS (
-	    SELECT method_type, train_dataset, lexicon_key, attribution_method, propagate_binary, eval_dataset, MAX(f1_har_macro) AS max_f1_har_macro
+	    SELECT method_type, train_dataset, lexicon_key, attribution_method, model_key, propagate_binary, eval_dataset,
+	           MAX(f1_har_macro) AS max_f1_har_macro
 	    FROM evaluation_plus
 	    WHERE train_dataset = eval_dataset
-	    GROUP BY method_type, train_dataset, lexicon_key, attribution_method, propagate_binary, eval_dataset
+	    GROUP BY method_type, train_dataset, lexicon_key, attribution_method, model_key, propagate_binary, eval_dataset
 	), in_domain_max_ids AS (
 	    SELECT evaluation_plus.id
 	    FROM in_domain_max
@@ -174,6 +176,7 @@ CREATE VIEW tuned_in_domain_max_f1_har_macro_view AS
 	    AND in_domain_max.train_dataset = evaluation_plus.train_dataset
 	    AND in_domain_max.lexicon_key IS NOT DISTINCT FROM evaluation_plus.lexicon_key
 	    AND in_domain_max.attribution_method IS NOT DISTINCT FROM evaluation_plus.attribution_method
+	    AND in_domain_max.model_key IS NOT DISTINCT FROM evaluation_plus.model_key
 	    AND in_domain_max.propagate_binary = evaluation_plus.propagate_binary
 	    AND in_domain_max.eval_dataset = evaluation_plus.eval_dataset
 	    AND in_domain_max.max_f1_har_macro = evaluation_plus.f1_har_macro
@@ -200,6 +203,7 @@ CREATE VIEW tuned_in_domain_max_f1_har_macro_view AS
 	            AND e_in.threshold IS NOT DISTINCT FROM e_cross.threshold
 	        ) OR (
 	            e_in.method_type = 'span_pred' AND e_in.method_type = e_cross.method_type
+	            AND e_in.model_key IS NOT DISTINCT FROM e_cross.model_key
 	        )
 	    )
 	)
@@ -220,10 +224,11 @@ CREATE VIEW tuned_in_domain_max_f1_toxic_view AS
 	    LEFT OUTER JOIN span_pred_evaluation AS pe ON e.id = pe.id
 	    LEFT OUTER JOIN rationale_evaluation AS re ON e.id = re.id
 	), in_domain_max AS (
-	    SELECT method_type, train_dataset, lexicon_key, attribution_method, propagate_binary, eval_dataset, MAX(f1_toxic) AS max_f1_toxic
+	    SELECT method_type, train_dataset, lexicon_key, attribution_method, model_key, propagate_binary, eval_dataset,
+	           MAX(f1_toxic) AS max_f1_toxic
 	    FROM evaluation_plus
 	    WHERE train_dataset = eval_dataset
-	    GROUP BY method_type, train_dataset, lexicon_key, attribution_method, propagate_binary, eval_dataset
+	    GROUP BY method_type, train_dataset, lexicon_key, attribution_method, model_key, propagate_binary, eval_dataset
 	), in_domain_max_ids AS (
 	    SELECT evaluation_plus.id
 	    FROM in_domain_max
@@ -232,6 +237,7 @@ CREATE VIEW tuned_in_domain_max_f1_toxic_view AS
 	    AND in_domain_max.train_dataset = evaluation_plus.train_dataset
 	    AND in_domain_max.lexicon_key IS NOT DISTINCT FROM evaluation_plus.lexicon_key
 	    AND in_domain_max.attribution_method IS NOT DISTINCT FROM evaluation_plus.attribution_method
+	    AND in_domain_max.model_key IS NOT DISTINCT FROM evaluation_plus.model_key
 	    AND in_domain_max.propagate_binary = evaluation_plus.propagate_binary
 	    AND in_domain_max.eval_dataset = evaluation_plus.eval_dataset
 	    AND in_domain_max.max_f1_toxic = evaluation_plus.f1_toxic
@@ -258,6 +264,7 @@ CREATE VIEW tuned_in_domain_max_f1_toxic_view AS
 	            AND e_in.threshold IS NOT DISTINCT FROM e_cross.threshold
 	        ) OR (
 	            e_in.method_type = 'span_pred' AND e_in.method_type = e_cross.method_type
+	            AND e_in.model_key IS NOT DISTINCT FROM e_cross.model_key
 	        )
 	    )
 	)
