@@ -218,7 +218,7 @@ class DeepLift(FeatureLevelMethodWrap):
     _captum_cls = captum.attr.DeepLift
     _processing_steps = [
         Processing.mean_embed_dims,
-        # Processing.rescale_sum1,
+        Processing.rescale_sum1,
     ]
     _loss_func_kwargs = {'reduction': 'none'}
 
