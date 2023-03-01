@@ -89,60 +89,81 @@ class RationaleExtractionArguments:
     steps_threshold: int = 50
 
 
-def search_rationale_extraction(attr_args, model_args, data_args, training_args):
+def _generate_grid(attr_args):
     threshold_space = np.linspace(attr_args.min_threshold, attr_args.max_threshold, attr_args.steps_threshold)
 
-    results = []
-    predictions = []
+    trial_configs = []
     for eval_dataset in set(SPAN_DATASETS.keys()):
-        data_args.dataset_name = eval_dataset
-
-        # TODO optimize by doing the prediction here instead of repeating for each attribution method
-
         for captum_class in attr_args.captum_classes:
-            training_args.captum_class = captum_class
-            method_name = captum_class.split('.')[-1]
 
-            attributed_dataset = perform_attribution(model_args, data_args, training_args)
+            trial_config_p1 = (eval_dataset, captum_class)
+            trial_config_p2 = []
 
             for scale_attribution_scores in attr_args.scale_attribution_scores:
                 for cumulative_scoring in attr_args.cumulative_scoring:
                     for propagate in attr_args.propagate_binary_predictions:
                         for threshold in threshold_space:
                             for filling_chars in attr_args.filling_chars:
+                                trial_config_p2.append((scale_attribution_scores, cumulative_scoring, propagate,
+                                                        threshold, filling_chars))
 
-                                if scale_attribution_scores:
-                                    pass
+            trial_configs.append((trial_config_p1, trial_config_p2))
 
-                                if cumulative_scoring:
-                                    # TODO ...
-                                    pass
+    return trial_configs
 
-                                def add_predictions(example):
-                                    example['pred_token_toxic_mask'] = [a > threshold for a in example['attributions']]
-                                    return example
-                                attributed_dataset = attributed_dataset.map(add_predictions)
 
-                                results_dict = evaluate_token_level(
-                                    attributed_dataset['pred_token_toxic_mask'], attributed_dataset,
-                                    propagate_binary_predictions=propagate,
-                                    nr_spaces_to_fill=filling_chars,
-                                )
+def extract_train_dataset_key(model_args):
+    return model_args.model_name_or_path.split('-')[-1].replace('/', '')
 
-                                results.append(results_dict['metrics'] | {
-                                    'eval_dataset': eval_dataset,
-                                    'attribution_method': method_name,
-                                    'scale_scores': scale_attribution_scores,
-                                    'cumulative_scoring': cumulative_scoring,
-                                    'propagate_binary': propagate,
-                                    'threshold': threshold,
-                                    'filling_chars': filling_chars,
-                                })
-                                predictions.append(results_dict['predictions'])
+
+def eval_trials(model_args, data_args, training_args, trial_configs):
+    results = []
+    predictions = []
+
+    for trial_config in trial_configs:
+        (eval_dataset, captum_class), trial_config_p2s = trial_config
+
+        data_args.dataset_name = eval_dataset
+        training_args.captum_class = captum_class
+        method_name = captum_class.split('.')[-1]
+
+        attributed_dataset = perform_attribution(model_args, data_args, training_args)
+
+        for trial_config_p2 in trial_config_p2s:
+            scale_attribution_scores, cumulative_scoring, propagate, threshold, filling_chars = trial_config_p2
+
+            if scale_attribution_scores:
+                pass
+
+            if cumulative_scoring:
+                # TODO ...
+                pass
+
+            def add_predictions(example):
+                example['pred_token_toxic_mask'] = [a > threshold for a in example['attributions']]
+                return example
+            attributed_dataset = attributed_dataset.map(add_predictions)
+
+            results_dict = evaluate_token_level(
+                attributed_dataset['pred_token_toxic_mask'], attributed_dataset,
+                propagate_binary_predictions=propagate,
+                nr_spaces_to_fill=filling_chars,
+            )
+
+            results.append(results_dict['metrics'] | {
+                'eval_dataset': f"{eval_dataset}-{data_args.attribution_split}",
+                'attribution_method': method_name,
+                'scale_scores': scale_attribution_scores,
+                'cumulative_scoring': cumulative_scoring,
+                'propagate_binary': propagate,
+                'threshold': threshold,
+                'filling_chars': filling_chars,
+            })
+            predictions.append(results_dict['predictions'])
 
     results_df = pd.DataFrame(results)
 
-    train_dataset_col = [model_args.model_name_or_path.split('-')[-1].replace('/', '')] * len(results_df.index)
+    train_dataset_col = [extract_train_dataset_key(model_args)] * len(results_df.index)
     results_df['train_dataset'] = train_dataset_col
 
     results_df = insert_evaluation(results_df)
@@ -164,4 +185,5 @@ if __name__ == "__main__":
     else:
         _attr_args, _model_args, _data_args, _train_args = parser.parse_args_into_dataclasses()
 
-    search_rationale_extraction(_attr_args, _model_args, _data_args, _train_args)
+    _trial_configs = _generate_grid(attr_args=_attr_args)
+    eval_trials(_model_args, _data_args, _train_args, _trial_configs)

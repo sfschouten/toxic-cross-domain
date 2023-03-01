@@ -20,6 +20,7 @@ import shutil
 import random
 import sys
 import collections
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -65,13 +66,11 @@ logger = logging.getLogger(__name__)
 PROJECT_HOME = os.getenv('TOXIC_X_DOM_HOME')
 
 
-def add_predictions_to_dataset(
-        dataset_name, model_train_dataset,
-        config_key='bert', split_key='dev', return_as_pandas=True
-):
+def add_predictions_to_dataset(dataset_name, model_train_dataset, config_key='bert', split_key='dev',
+                               return_as_pandas=True):
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     model_path = os.path.join(PROJECT_HOME, f'experiments/binary_classification/outputs/{config_key}-{model_train_dataset}/')
-    out_dir = os.path.join(PROJECT_HOME, 'experiments/binary_classification/outputs/temp/')
+    out_dir = os.path.join(PROJECT_HOME, f'experiments/binary_classification/outputs/temp{int(time.time())}/')
     model_args, data_args, training_args = parser.parse_dict({
         'output_dir':           out_dir,
         'do_train':             False,
@@ -165,6 +164,14 @@ class DataTrainingArguments:
         },
     )
 
+    predict_split: str = field(
+        default='test', metadata={"help": "TODO"}
+    )
+
+    attribution_split: str = field(
+        default='dev', metadata={"help": "TODO"}
+    )
+
 
 @dataclass
 class ModelArguments:
@@ -240,14 +247,6 @@ class TrainingArguments(HfTrainingArguments):
     )
     early_stopping_threshold: float = field(
         default=0.0, metadata={"help": "TODO"}
-    )
-
-    predict_split: str = field(
-        default='test', metadata={"help": "TODO"}
-    )
-
-    attribution_split: str = field(
-        default='dev', metadata={"help": "TODO"}
     )
 
 
@@ -460,9 +459,9 @@ def main(model_args, data_args, training_args):
             )
 
     if training_args.do_predict:
-        if training_args.predict_split not in raw_datasets:
+        if data_args.predict_split not in raw_datasets:
             raise ValueError("--do_predict requires a test dataset")
-        predict_dataset = raw_datasets[training_args.predict_split]
+        predict_dataset = raw_datasets[data_args.predict_split]
         if data_args.max_predict_samples is not None:
             max_predict_samples = min(len(predict_dataset), data_args.max_predict_samples)
             predict_dataset = predict_dataset.select(range(max_predict_samples))
@@ -475,7 +474,7 @@ def main(model_args, data_args, training_args):
             )
 
     if training_args.do_attribution:
-        if training_args.attribution_split not in raw_datasets:
+        if data_args.attribution_split not in raw_datasets:
             raise ValueError("TODO")
         attribution_dataset = raw_datasets[training_args.attribution_split]
         if data_args.max_predict_samples is not None:
@@ -486,7 +485,7 @@ def main(model_args, data_args, training_args):
                 preprocess_function,
                 batched=True,
                 load_from_cache_file=not data_args.overwrite_cache,
-                desc="Running tokenizer on prediction dataset",
+                desc="Running tokenizer on attribution dataset",
             )
             nr_max_length = sum(1 for x in attribution_dataset['input_ids']
                                 if len(x) == model.config.max_position_embeddings)

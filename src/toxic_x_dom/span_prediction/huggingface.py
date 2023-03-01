@@ -98,7 +98,7 @@ def process_dataset_for_span_detection(dataset, tokenizer, class_label, data_arg
             tokenize_and_align_labels,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
-            desc="Running tokenizer on development dataset"
+            desc="Running tokenizer on dataset"
         )
 
 
@@ -224,6 +224,14 @@ class DataTrainingArguments:
         },
     )
 
+    predict_split: str = field(
+        default='test', metadata={"help": "TODO"}
+    )
+
+    eval_split: str = field(
+        default='dev', metadata={"help": "TODO"}
+    )
+
     def __post_init__(self):
         if self.dataset_name is None:
             raise ValueError("Need a dataset name.")
@@ -292,10 +300,10 @@ def main(model_args, data_args, training_args, eval_args):
     # Load dataset
     if eval_args.propagate_binary:
         train_dataset = model_args.model_name_or_path.split('-')[-1].replace('/', '')
-        results = add_predictions_to_dataset(data_args.dataset_name, train_dataset, return_as_pandas=False)
+        results = add_predictions_to_dataset(data_args.dataset_name, train_dataset, return_as_pandas=False, split_key=data_args.eval_split)
         raw_datasets = results['raw_datasets']
         predictions_list = list(results['predictions'])
-        raw_datasets['dev'] = raw_datasets['dev'].add_column('toxic_prediction', predictions_list)
+        raw_datasets[data_args.eval_split] = raw_datasets[data_args.eval_split].add_column('toxic_prediction', predictions_list)
     else:
         raw_datasets = load_dataset(toxic_x_dom.data.__file__, dataset_name=data_args.dataset_name)
 
@@ -407,9 +415,9 @@ def main(model_args, data_args, training_args, eval_args):
             train_dataset, tokenizer, class_label, data_args, padding, training_args)
 
     if training_args.do_eval:
-        if "dev" not in raw_datasets:
-            raise ValueError("--do_eval requires a development dataset")
-        eval_dataset = raw_datasets["dev"]
+        if data_args.eval_split not in raw_datasets:
+            raise ValueError(f"--do_eval: eval_split ({data_args.eval_split}) not found.")
+        eval_dataset = raw_datasets[data_args.eval_split]
         if data_args.max_eval_samples is not None:
             max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
             eval_dataset = eval_dataset.select(range(max_eval_samples))
@@ -417,9 +425,9 @@ def main(model_args, data_args, training_args, eval_args):
             eval_dataset, tokenizer, class_label, data_args, padding, training_args)
 
     if training_args.do_predict:
-        if "test" not in raw_datasets:
-            raise ValueError("--do_predict requires a test dataset")
-        predict_dataset = raw_datasets["test"]
+        if data_args.predict_split not in raw_datasets:
+            raise ValueError(f"--do_predict: predict_split ({data_args.predict_split}) not found.")
+        predict_dataset = raw_datasets[data_args.predict_split]
         if data_args.max_predict_samples is not None:
             max_predict_samples = min(len(predict_dataset), data_args.max_predict_samples)
             predict_dataset = predict_dataset.select(range(max_predict_samples))

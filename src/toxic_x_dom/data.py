@@ -353,17 +353,15 @@ if __name__ == "__main__":
                                rownames=['Has span?'], colnames=['Split', 'Is toxic?'])
         print(crosstab)
 
-    cad = load_cad_data()
-    print_sample(cad, 'CAD')
-    print_crosstab_toxic_nospan(cad)
-    print('\n\n')
+    def print_span_proportions(df):
+        lengths = df.apply(lambda row: len(row.full_text), axis=1)[df['toxic']]
+        nr_toxic = df.apply(lambda row: sum(row.toxic_mask), axis=1)[df['toxic']]
+        avg_proportion = (nr_toxic[lengths > 0] / lengths[lengths > 0]).mean()
+        print(f'average proportion of sample that is toxic: {avg_proportion}')
 
-    hxpl = load_hatexplain_data()
-    print_sample(hxpl, 'HateXplain')
-    print_crosstab_toxic_nospan(hxpl)
-    print('\n\n')
-
-    semeval = load_semeval_data()
-    print_sample(semeval, 'SemEval')
-    print_crosstab_toxic_nospan(semeval)
-    print('\n\n')
+    DATASETS = {'CAD': load_cad_data, 'HateXplain': load_hatexplain_data, 'SemEval': load_semeval_data}
+    for key, data_fn in DATASETS.items():
+        data = data_fn()
+        print_sample(data, key)
+        print_crosstab_toxic_nospan(data)
+        print(print_span_proportions(data))

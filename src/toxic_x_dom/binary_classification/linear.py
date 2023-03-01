@@ -12,8 +12,8 @@ from toxic_x_dom.data import SPAN_DATASETS
 DEFAULT_MODEL = LogisticRegression(max_iter=1000, class_weight='balanced')
 
 
-def add_predictions_to_dataset(eval_dataset_name, train_dataset_name, model=DEFAULT_MODEL):
-
+def add_predictions_to_dataset(eval_dataset_name, train_dataset_name, model=DEFAULT_MODEL, split_key='dev'):
+    # TODO use split_key...
     raise NotImplementedError('Temporarily disable linear model until it is made compatible with cross-domain application')
 
     eval_dataset = SPAN_DATASETS[eval_dataset_name]()
