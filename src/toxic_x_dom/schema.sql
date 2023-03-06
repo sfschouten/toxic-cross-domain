@@ -269,3 +269,30 @@ CREATE VIEW tuned_in_domain_max_f1_toxic_view AS
 	    )
 	)
 	SELECT * FROM cross_domain_max;
+
+
+CREATE OR REPLACE VIEW trial_evaluations_to_test AS
+SELECT * FROM
+(   -- best trials that haven't been tested yet
+	SELECT method_type, eval_dataset, train_dataset, propagate_binary, filling_chars, lexicon_key, min_occurrence, theta, attribution_method, scale_scores,
+cumulative_scoring, threshold, model_key
+	FROM tuned_in_domain_max_f1_har_macro_view
+	WHERE NOT CONTAINS(eval_dataset, 'test')
+	UNION
+	SELECT method_type, eval_dataset, train_dataset, propagate_binary, filling_chars, lexicon_key, min_occurrence, theta, attribution_method, scale_scores,
+cumulative_scoring, threshold, model_key
+	FROM tuned_in_domain_max_f1_toxic_view
+	WHERE NOT CONTAINS(eval_dataset, 'test')
+)
+EXCEPT
+(   -- best trials that have already been tested
+	SELECT method_type, REPLACE(eval_dataset, '-test', '') AS eval_dataset, train_dataset, propagate_binary, filling_chars, lexicon_key, min_occurrence, theta, attribution_method, scale_scores,
+cumulative_scoring, threshold, model_key
+	FROM tuned_in_domain_max_f1_har_macro_view
+	WHERE CONTAINS(eval_dataset, 'test')
+	UNION
+	SELECT method_type, REPLACE(eval_dataset, '-test', '') AS eval_dataset, train_dataset, propagate_binary, filling_chars, lexicon_key, min_occurrence, theta, attribution_method, scale_scores,
+cumulative_scoring, threshold, model_key
+	FROM tuned_in_domain_max_f1_toxic_view
+	WHERE CONTAINS(eval_dataset, 'test')
+);

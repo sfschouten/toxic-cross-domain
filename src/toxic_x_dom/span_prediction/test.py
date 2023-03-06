@@ -16,14 +16,11 @@ def eval_on_test(model_args, data_args, train_args):
     train_dataset, model_key = extract_train_dataset_and_model_keys(model_args)
 
     # get best performing trials
-    columns = ",".join(['eval_dataset', 'train_dataset', 'propagate_binary', 'filling_chars',
-                        'model_key'])
-    results = db.query(f"SELECT {columns} "
-                       f"FROM tuned_in_domain_max_f1_har_macro_view "
-                       f"WHERE method_type = 'span_pred'"
-                       f"AND train_dataset = '{train_dataset}'"
-                       f"AND model_key = '{model_key}'"
-                       f"AND NOT CONTAINS(eval_dataset, 'test')").df()
+    columns = ",".join(['eval_dataset', 'train_dataset', 'propagate_binary', 'filling_chars', 'model_key'])
+    results = db.query(f"SELECT {columns} FROM trial_evaluations_to_test"
+                       f" WHERE method_type = 'span_pred'"
+                       f" AND train_dataset = '{train_dataset}'"
+                       f" AND model_key = '{model_key}'").df()
 
     print('Running eval on test split for best trials:')
     print(results)
@@ -35,7 +32,8 @@ def eval_on_test(model_args, data_args, train_args):
         configs.append(config)
 
     data_args.eval_split = 'test'
-    eval_trials(model_args, data_args, train_args, configs)
+    if len(configs) > 0:
+        eval_trials(model_args, data_args, train_args, configs)
 
 
 if __name__ == "__main__":

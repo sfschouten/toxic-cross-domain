@@ -9,10 +9,8 @@ def eval_on_test():
     # get best performing trials
     columns = ",".join(['eval_dataset', 'train_dataset', 'propagate_binary', 'filling_chars',
                        'lexicon_key', 'min_occurrence', 'theta'])
-    results = db.query(f"SELECT {columns} "
-                       f"FROM tuned_in_domain_max_f1_har_macro_view "
-                       f"WHERE method_type = 'lexicon'"
-                       f"AND NOT CONTAINS(eval_dataset, 'test')").df()
+    results = db.query(f"SELECT {columns} FROM trial_evaluations_to_test "
+                       f" WHERE method_type = 'lexicon'").df()
 
     print('Running eval on test split for best trials:')
     print(results)
@@ -40,7 +38,8 @@ def eval_on_test():
 
         configs.append((config_p1, config_p2))
 
-    eval_trials(configs, lex_config, span_datasets, existing, constructed)
+    if len(configs) > 0:
+        eval_trials(configs, lex_config, span_datasets, existing, constructed)
 
 
 if __name__ == "__main__":

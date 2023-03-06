@@ -25,5 +25,6 @@ pushd experiments/
   popd
   pushd lexicon/
     ./run.sh
+    ./run_test.sh
   popd
 popd

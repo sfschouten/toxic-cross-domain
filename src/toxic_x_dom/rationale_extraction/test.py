@@ -14,13 +14,11 @@ def eval_on_test(model_args, data_args, train_args):
     train_dataset = extract_train_dataset_key(model_args)
 
     # get best performing trials
-    columns = ",".join(['eval_dataset', 'train_dataset', 'propagate_binary', 'filling_chars',
-                       'attribution_method', 'scale_scores', 'cumulative_scoring', 'threshold'])
-    results = db.query(f"SELECT {columns} "
-                       f"FROM tuned_in_domain_max_f1_har_macro_view "
-                       f"WHERE method_type = 'rationale'"
-                       f"AND train_dataset = '{train_dataset}'"
-                       f"AND NOT CONTAINS(eval_dataset, 'test')").df()
+    columns = ",".join(['eval_dataset', 'train_dataset', 'propagate_binary', 'filling_chars', 'attribution_method',
+                        'scale_scores', 'cumulative_scoring', 'threshold'])
+    results = db.query(f"SELECT {columns} FROM trial_evaluations_to_test"
+                       f" WHERE method_type = 'rationale'"
+                       f" AND train_dataset = '{train_dataset}'").df()
 
     print('Running eval on test split for best trials:')
     print(results)
@@ -32,8 +30,9 @@ def eval_on_test(model_args, data_args, train_args):
         config_p2 = [(row.scale_scores, row.cumulative_scoring, row.propagate_binary, row.threshold, row.filling_chars)]
         configs.append((config_p1, config_p2))
 
-    train_args.attribution_split = 'test'
-    eval_trials(model_args, data_args, train_args, configs)
+    data_args.attribution_split = 'test'
+    if len(configs) > 0:
+        eval_trials(model_args, data_args, train_args, configs)
 
 
 if __name__ == "__main__":

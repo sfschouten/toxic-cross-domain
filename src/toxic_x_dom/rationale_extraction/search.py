@@ -35,7 +35,7 @@ def perform_attribution(model_args, data_args, training_args):
     training_args.do_predict = True
     training_args.do_attribution = True
     training_args.include_inputs_for_metrics = True
-    training_args.predict_split = training_args.attribution_split
+    data_args.predict_split = data_args.attribution_split
 
     results = binary_classification(model_args, data_args, training_args)
     shutil.rmtree(out_dir)
@@ -162,10 +162,7 @@ def eval_trials(model_args, data_args, training_args, trial_configs):
             predictions.append(results_dict['predictions'])
 
     results_df = pd.DataFrame(results)
-
-    train_dataset_col = [extract_train_dataset_key(model_args)] * len(results_df.index)
-    results_df['train_dataset'] = train_dataset_col
-
+    results_df['train_dataset'] = [extract_train_dataset_key(model_args)] * len(results_df.index)
     results_df = insert_evaluation(results_df)
     insert_predictions(results_df['id'], predictions)
 

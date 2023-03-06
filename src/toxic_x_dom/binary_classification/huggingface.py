@@ -476,7 +476,7 @@ def main(model_args, data_args, training_args):
     if training_args.do_attribution:
         if data_args.attribution_split not in raw_datasets:
             raise ValueError("TODO")
-        attribution_dataset = raw_datasets[training_args.attribution_split]
+        attribution_dataset = raw_datasets[data_args.attribution_split]
         if data_args.max_predict_samples is not None:
             max_predict_samples = min(len(attribution_dataset), data_args.max_predict_samples)
             attribution_dataset = attribution_dataset.select(range(max_predict_samples))
