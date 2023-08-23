@@ -59,3 +59,28 @@ Each method is evaluated cross-domain, in various settings:
    - evaluated on toxic and non-toxic text, including a binary toxicity prediction step from which errors are propagated
  - post-processing of the predictions
    - merging predicted spans separated by *x* tokens.
+  
+  
+# Citation
+Schouten, S.F., Barbarestani, B., Tufa, W., Vossen, P., Markov, I. (2023). Cross-Domain Toxic Spans Detection. In: Métais, E., Meziane, F., Sugumaran, V., Manning, W., Reiff-Marganiec, S. (eds) Natural Language Processing and Information Systems. NLDB 2023. Lecture Notes in Computer Science, vol 13913. Springer, Cham. https://doi.org/10.1007/978-3-031-35320-8_40
+```bibtex
+@InProceedings{10.1007/978-3-031-35320-8_40,
+ author="Schouten, Stefan F.
+ and Barbarestani, Baran
+ and Tufa, Wondimagegnhue
+ and Vossen, Piek
+ and Markov, Ilia",
+ editor="M{\'e}tais, Elisabeth
+ and Meziane, Farid
+ and Sugumaran, Vijayan
+ and Manning, Warren
+ and Reiff-Marganiec, Stephan",
+ title="Cross-Domain Toxic Spans Detection",
+ booktitle="Natural Language Processing and Information Systems",
+ year="2023",
+ publisher="Springer Nature Switzerland",
+ address="Cham",
+ pages="533--545",
+ abstract="Given the dynamic nature of toxic language use, automated methods for detecting toxic spans are likely to encounter distributional shift. To explore this phenomenon, we evaluate three approaches for detecting toxic spans under cross-domain conditions: lexicon-based, rationale extraction, and fine-tuned language models. Our findings indicate that a simple method using off-the-shelf lexicons performs best in the cross-domain setup. The cross-domain error analysis suggests that (1) rationale extraction methods are prone to false negatives, while (2) language models, despite performing best for the in-domain case, recall fewer explicitly toxic words than lexicons and are prone to certain types of false positives. Our code is publicly available at: https://github.com/sfschouten/toxic-cross-domain.",
+ isbn="978-3-031-35320-8"
+}
